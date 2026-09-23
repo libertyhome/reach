@@ -145,6 +145,14 @@ export function migrate(db: Database.Database) {
       ddl: `ALTER TABLE people ADD COLUMN assessment_notes TEXT NOT NULL DEFAULT ''`,
     },
     { name: "manor_phase", ddl: `ALTER TABLE people ADD COLUMN manor_phase TEXT NOT NULL DEFAULT ''` },
+    {
+      name: "detox_first",
+      ddl: `ALTER TABLE people ADD COLUMN detox_first INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      name: "expected_detox_nights",
+      ddl: `ALTER TABLE people ADD COLUMN expected_detox_nights INTEGER NOT NULL DEFAULT 0`,
+    },
     { name: "admission_date", ddl: `ALTER TABLE people ADD COLUMN admission_date TEXT NOT NULL DEFAULT ''` },
     {
       name: "planned_discharge_date",

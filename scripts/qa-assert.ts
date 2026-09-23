@@ -4,8 +4,9 @@ import { getDb } from "../src/lib/db";
 import { FORBIDDEN_CLINICAL_FIELDS } from "../src/lib/field-gate";
 import { claimsForPerson, signHandoff, verifyHandoff, withinClientIdFor } from "../src/lib/handoff";
 import { occupancyParityRow, programPhaseFor } from "../src/lib/occupancy";
-import { findPersonByName, occupancyCounts } from "../src/lib/people";
-import { applyPersonPatch, checklistComplete, updateLeadSource } from "../src/lib/pipeline";
+import { findPersonByName, occupancyCounts, roomOccupant } from "../src/lib/people";
+import { applyPersonPatch, checklistComplete, confirmAdmit, updateLeadSource } from "../src/lib/pipeline";
+import { listRooms } from "../src/lib/rooms";
 import { seed } from "../src/lib/seed";
 import { authenticate, findUserById } from "../src/lib/users";
 import { listAudit, undoEvent } from "../src/lib/audit";
@@ -23,6 +24,8 @@ assert(amelia.room_id.endsWith("yew"), "Amelia Hart must be on Manor room Yew");
 assert.strictEqual(amelia.within_handoff_status, "pack_ready");
 assert.strictEqual(amelia.within_client_id, withinClientIdFor(amelia.id));
 assert.strictEqual(amelia.admission_kind, "program");
+assert.strictEqual(amelia.detox_first, 0, "Demo treatment admit has no detox-first flag");
+assert.strictEqual(amelia.expected_detox_nights, 0);
 assert.strictEqual(amelia.arf_signed, 1, "Amelia must have ARF signed gate");
 assert.strictEqual(amelia.arp_signed, 1, "Amelia must have ARP signed gate");
 assert.strictEqual(amelia.room_privacy, "private");
@@ -37,7 +40,21 @@ assert(ameliaClaims, "Amelia Hart handoff claims");
 assert.strictEqual(ameliaClaims.facility, "manor");
 assert.strictEqual(ameliaClaims.phase, "1");
 assert.strictEqual(ameliaClaims.firstName, "Amelia");
+assert.strictEqual(ameliaClaims.admissionKind, "program");
+assert.strictEqual(ameliaClaims.detoxFirst, false);
+assert.strictEqual(ameliaClaims.expectedDetoxNights, 0);
+assert.strictEqual(ameliaClaims.detoxIntent, "none");
 assert.strictEqual(verifyHandoff(signHandoff(ameliaClaims))?.reachClientId, amelia.id);
+
+const legacyClaims = { ...ameliaClaims } as Partial<typeof ameliaClaims>;
+delete legacyClaims.detoxFirst;
+delete legacyClaims.expectedDetoxNights;
+delete legacyClaims.detoxIntent;
+const legacyVerified = verifyHandoff(signHandoff(legacyClaims as typeof ameliaClaims));
+assert(legacyVerified, "Older handoff tokens without detox fields still verify");
+assert.strictEqual(legacyVerified.detoxIntent, "none");
+assert.strictEqual(legacyVerified.detoxFirst, false);
+assert.strictEqual(legacyVerified.expectedDetoxNights, 0);
 const noah = findPersonByName("Noah", "Botha");
 assert(noah && noah.stage === "admit", "Noah Botha still waiting on Admit");
 assert(checklistComplete(noah), "Noah Botha checklist must be complete including ARF/ARP signed");
@@ -101,6 +118,69 @@ assert(
 );
 undoEvent(checklistEdit.event.id, accounts.id);
 
+const vacantManor = listRooms("manor").find((room) => !roomOccupant(room.id));
+assert(vacantManor, "A vacant Manor room is required to check admit");
+const missingDetoxAnswer = confirmAdmit(noah.id, vacantManor.id, "program", actor, { manorPhase: "1" });
+assert.strictEqual(missingDetoxAnswer.ok, false);
+const mixedShortStay = confirmAdmit(noah.id, vacantManor.id, "detox_containment", actor, {
+  manorPhase: "1",
+  detoxFirst: "1",
+  expectedDetoxNights: "2",
+});
+assert.strictEqual(mixedShortStay.ok, false);
+const badDetoxNights = confirmAdmit(noah.id, vacantManor.id, "program", actor, {
+  manorPhase: "1",
+  detoxFirst: "1",
+  expectedDetoxNights: "6",
+});
+assert.strictEqual(badDetoxNights.ok, false);
+const detoxAdmit = confirmAdmit(noah.id, vacantManor.id, "program", actor, {
+  manorPhase: "1",
+  detoxFirst: "1",
+  expectedDetoxNights: "3",
+});
+assert.strictEqual(detoxAdmit.ok, true);
+if (detoxAdmit.ok) {
+  assert.strictEqual(detoxAdmit.person.stage, "resident");
+  assert.strictEqual(detoxAdmit.person.admission_kind, "program");
+  assert.strictEqual(detoxAdmit.person.detox_first, 1);
+  assert.strictEqual(detoxAdmit.person.expected_detox_nights, 3);
+  assert.strictEqual(detoxAdmit.person.manor_phase, "1");
+  const detoxClaims = claimsForPerson(detoxAdmit.person);
+  assert(detoxClaims, "Detox-first handoff claims");
+  assert.strictEqual(detoxClaims.admissionKind, "program");
+  assert.strictEqual(detoxClaims.detoxFirst, true);
+  assert.strictEqual(detoxClaims.expectedDetoxNights, 3);
+  assert.strictEqual(detoxClaims.detoxIntent, "detox_first");
+  assert.strictEqual(detoxClaims.phase, "1");
+  const detoxRoundTrip = verifyHandoff(signHandoff(detoxClaims));
+  assert.strictEqual(detoxRoundTrip?.detoxIntent, "detox_first");
+  assert.strictEqual(detoxRoundTrip?.expectedDetoxNights, 3);
+  assert(detoxAdmit.event.summary.includes("detox first"), detoxAdmit.event.summary);
+  const undoneDetox = undoEvent(detoxAdmit.event.id, actor.id);
+  assert(undoneDetox.ok, "Undo detox-first admit");
+}
+const noahRestored = findPersonByName("Noah", "Botha");
+assert(noahRestored && noahRestored.stage === "admit", "Noah returns to Admit after undo");
+assert.strictEqual(noahRestored.detox_first, 0);
+assert.strictEqual(noahRestored.expected_detox_nights, 0);
+
+const shortStay = confirmAdmit(noah.id, vacantManor.id, "detox_containment", actor, { manorPhase: "1" });
+assert.strictEqual(shortStay.ok, true);
+if (shortStay.ok) {
+  assert.strictEqual(shortStay.person.admission_kind, "detox_containment");
+  assert.strictEqual(shortStay.person.detox_first, 0);
+  assert.strictEqual(shortStay.person.expected_detox_nights, 0);
+  const shortClaims = claimsForPerson(shortStay.person);
+  assert.strictEqual(shortClaims?.admissionKind, "detox_containment");
+  assert.strictEqual(shortClaims?.detoxIntent, "short_stay");
+  assert.strictEqual(shortClaims?.detoxFirst, false);
+  assert.strictEqual(shortClaims?.expectedDetoxNights, 0);
+  const undoneShort = undoEvent(shortStay.event.id, actor.id);
+  assert(undoneShort.ok, "Undo short stay admit");
+}
+assert.strictEqual(findPersonByName("Noah", "Botha")?.stage, "admit");
+
 const bannedName = ["appro", "ach"].join("");
 const repo = execSync(
   `rg -n -i '${bannedName}' --glob '!node_modules/**' --glob '!.next/**' --glob '!package-lock.json' --glob '!scripts/qa-assert.ts' --glob '!*.patch' . || true`,
@@ -140,6 +220,8 @@ for (const needed of [
   "manor_phase",
   "admission_date",
   "planned_discharge_date",
+  "detox_first",
+  "expected_detox_nights",
 ]) {
   assert(columns.includes(needed), `people table must have ${needed}`);
 }

@@ -93,6 +93,8 @@ function person(partial: Partial<Person> & Pick<Person, "first_name" | "last_nam
     within_handoff_status: partial.within_handoff_status ?? "none",
     within_client_id: partial.within_client_id ?? "",
     admission_kind: partial.admission_kind ?? "",
+    detox_first: partial.detox_first ?? 0,
+    expected_detox_nights: partial.expected_detox_nights ?? 0,
     admitted_at: partial.admitted_at ?? "",
     archived_at: partial.archived_at ?? "",
     created_at: created,
@@ -304,7 +306,7 @@ function seedAmelia() {
   writeAudit({
     personId: enquiry.id,
     action: "admit",
-    summary: "Confirmed admit to Manor room Yew · Within admission pack (program)",
+    summary: "Confirmed admit to Manor room Yew · Within admission pack (Treatment)",
     actorId: "user_admissions",
     before: ready,
     after: admitted,

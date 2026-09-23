@@ -9,7 +9,15 @@ import type { AdmissionKind, House, Person, ProgramPhase } from "./types";
  * Reach → Within admission handoff.
  * Keep the claim shape and HMAC format in sync with Within `src/lib/handoff.ts`.
  * Light identity only. Clinical SoR stays in Within. monday.com is not in this path.
+ *
+ * Claim version stays 1. Detox intent is additive on the same token:
+ * detoxFirst, expectedDetoxNights, detoxIntent.
+ * Tokens minted before those fields verify as treatment-with-no-detox, or short stay
+ * when admissionKind is detox_containment.
  */
+
+export const DETOX_INTENTS = ["none", "detox_first", "short_stay"] as const;
+export type DetoxIntent = (typeof DETOX_INTENTS)[number];
 
 export const HANDOFF_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -35,6 +43,12 @@ export type HandoffClaims = {
   facility: House;
   phase: ProgramPhase;
   admissionKind: AdmissionKind;
+  /** True when treatment starts with detox and continues on this same admission. */
+  detoxFirst: boolean;
+  /** 1–5 when detoxFirst is true; otherwise 0. */
+  expectedDetoxNights: number;
+  /** none = treatment only; detox_first = detox then programme; short_stay = detox-only / brief. */
+  detoxIntent: DetoxIntent;
   firstName: string;
   lastName: string;
   preferredName: string;
@@ -104,10 +118,44 @@ export function verifyHandoff(token: string, secret = handoffSecret()): HandoffC
     if (data.admissionKind !== "program" && data.admissionKind !== "detox_containment") return null;
     if (data.facility !== "manor" && data.facility !== "lodge") return null;
     if (data.phase !== "1" && data.phase !== "2" && data.phase !== "3") return null;
-    return data;
+    const detox = normalizeDetoxClaims(data);
+    if (!detox) return null;
+    return { ...data, ...detox };
   } catch {
     return null;
   }
+}
+
+function normalizeDetoxClaims(
+  data: Partial<HandoffClaims> & Pick<HandoffClaims, "admissionKind">,
+): Pick<HandoffClaims, "detoxFirst" | "expectedDetoxNights" | "detoxIntent"> | null {
+  const legacy =
+    data.detoxFirst === undefined && data.expectedDetoxNights === undefined && data.detoxIntent === undefined;
+  if (legacy) {
+    if (data.admissionKind === "detox_containment") {
+      return { detoxFirst: false, expectedDetoxNights: 0, detoxIntent: "short_stay" };
+    }
+    return { detoxFirst: false, expectedDetoxNights: 0, detoxIntent: "none" };
+  }
+
+  if (typeof data.detoxFirst !== "boolean") return null;
+  if (!Number.isInteger(data.expectedDetoxNights)) return null;
+  const nights = data.expectedDetoxNights as number;
+  if (nights < 0 || nights > 5) return null;
+  if (data.detoxIntent !== "none" && data.detoxIntent !== "detox_first" && data.detoxIntent !== "short_stay") {
+    return null;
+  }
+
+  if (data.admissionKind === "detox_containment") {
+    if (data.detoxIntent !== "short_stay" || data.detoxFirst || nights !== 0) return null;
+    return { detoxFirst: false, expectedDetoxNights: 0, detoxIntent: "short_stay" };
+  }
+  if (data.detoxFirst) {
+    if (data.detoxIntent !== "detox_first" || nights < 1) return null;
+    return { detoxFirst: true, expectedDetoxNights: nights, detoxIntent: "detox_first" };
+  }
+  if (data.detoxIntent !== "none" || nights !== 0) return null;
+  return { detoxFirst: false, expectedDetoxNights: 0, detoxIntent: "none" };
 }
 
 export function claimsForPerson(person: Person, now = Date.now()): HandoffClaims | null {
@@ -117,6 +165,10 @@ export function claimsForPerson(person: Person, now = Date.now()): HandoffClaims
   if (!placement) return null;
   const admissionKind: AdmissionKind =
     person.admission_kind === "detox_containment" ? "detox_containment" : "program";
+  const detoxFirst = admissionKind === "program" && person.detox_first === 1;
+  const expectedDetoxNights = detoxFirst ? Number(person.expected_detox_nights) || 0 : 0;
+  const detoxIntent: DetoxIntent =
+    admissionKind === "detox_containment" ? "short_stay" : detoxFirst ? "detox_first" : "none";
   const docs = withinDocumentManifest(person.id);
   return {
     v: 1,
@@ -125,6 +177,9 @@ export function claimsForPerson(person: Person, now = Date.now()): HandoffClaims
     facility: placement.facility,
     phase: placement.phase,
     admissionKind,
+    detoxFirst,
+    expectedDetoxNights,
+    detoxIntent,
     firstName: person.first_name,
     lastName: person.last_name,
     preferredName: person.preferred_name,

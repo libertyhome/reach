@@ -266,6 +266,8 @@ export async function confirmAdmitAction(formData: FormData) {
     counsellorUserId: formString(formData, "counsellor_user_id"),
     admissionDate: formString(formData, "admission_date"),
     plannedDischargeDate: formString(formData, "planned_discharge_date"),
+    detoxFirst: formString(formData, "detox_first"),
+    expectedDetoxNights: formString(formData, "expected_detox_nights"),
   });
   if (!result.ok) redirect(`/people/${id}?error=${encodeURIComponent(result.error)}`);
   const house = result.person.house === "lodge" ? "lodge" : "manor";

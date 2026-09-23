@@ -1,4 +1,5 @@
 import { confirmAdmitAction } from "@/app/actions";
+import { AdmissionTypeFields } from "@/components/AdmissionTypeFields";
 import { HOUSE_SHORT } from "@/lib/labels";
 import { checklistComplete } from "@/lib/pipeline";
 import { houseBoard } from "@/lib/rooms";
@@ -65,8 +66,8 @@ export function AdmitConfirm({ person, staff }: { person: Person; staff: User[] 
           <option value="2">Phase 2</option>
         </select>
         <span className="mt-1 block text-xs text-muted">
-          Required when confirming into Manor. Lodge is always Phase 3 (sober living) — this picker is ignored for Lodge
-          rooms.
+          Required for Manor. This is the treatment phase on this admission, including after detox — no second admit.
+          Lodge is always Phase 3 (sober living); this picker is ignored for Lodge rooms.
         </span>
       </label>
       <label className="block">
@@ -107,22 +108,7 @@ export function AdmitConfirm({ person, staff }: { person: Person; staff: User[] 
           />
         </label>
       </div>
-      <label className="block">
-        <span className="text-sm font-medium">Within admission type</span>
-        <select
-          name="admission_kind"
-          required
-          defaultValue=""
-          disabled={!ready}
-          className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3 disabled:opacity-60"
-        >
-          <option value="" disabled>
-            Choose program or detox / containment
-          </option>
-          <option value="program">Program</option>
-          <option value="detox_containment">Detox / containment</option>
-        </select>
-      </label>
+      <AdmissionTypeFields disabled={!ready} />
       <button
         type="submit"
         disabled={!ready}

@@ -16,7 +16,7 @@ export default async function AdmitPage({
       <UndoBar eventId={params.undo} notice={params.notice} />
       <StageBoard
         title="Admit"
-        lede="Confirm into a vacant room, choose program or detox / containment, then open the Within admission pack. Form 7, meds, ROI, and risk stay in Within."
+        lede="Confirm into a vacant room. Treatment can start with detox (1–5 nights) and continue on the same admission. Short stay is for detox-only or brief admissions. Then open the Within admission pack. Form 7, meds, ROI, and risk stay in Within."
         actionHref="/admit/ipad"
         actionLabel="iPad admission packs"
         people={listPeopleByStage("admit")}

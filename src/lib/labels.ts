@@ -1,4 +1,4 @@
-import type { House, LeadSource, Role, Stage } from "./types";
+import { ADMISSION_KIND_LABEL, type AdmissionKind, type House, type LeadSource, type Role, type Stage } from "./types";
 
 export const STAGE_NAV: { href: string; label: string; stage?: Stage }[] = [
   { href: "/enquiries", label: "Enquiries", stage: "enquiry" },
@@ -58,6 +58,22 @@ export const ROLE_LABEL: Record<Role, string> = {
 };
 
 export const PIPELINE_STAGES: Stage[] = ["enquiry", "next_steps", "approval", "admit"];
+
+/** Staff-facing admission line, including optional detox-first on a treatment admit. */
+export function admissionSummary(person: {
+  admission_kind: AdmissionKind | "";
+  detox_first?: number;
+  expected_detox_nights?: number;
+}) {
+  if (person.admission_kind === "detox_containment") return ADMISSION_KIND_LABEL.detox_containment;
+  if (person.admission_kind !== "program") return "";
+  if (person.detox_first === 1) {
+    const nights = person.expected_detox_nights ?? 0;
+    const noun = nights === 1 ? "night" : "nights";
+    return `${ADMISSION_KIND_LABEL.program} · detox first, ${nights} ${noun}`;
+  }
+  return ADMISSION_KIND_LABEL.program;
+}
 
 export function personDisplayName(person: {
   first_name: string;

@@ -54,6 +54,8 @@ export const COMMERCIAL_FIELDS = [
   "within_handoff_status",
   "within_client_id",
   "admission_kind",
+  "detox_first",
+  "expected_detox_nights",
   "admitted_at",
   "archived_at",
 ] as const;
