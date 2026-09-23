@@ -1,5 +1,5 @@
 import { PACK_BUTTONS, facilityLine, withinPackUrl } from "@/lib/handoff";
-import { HOUSE_SHORT, personDisplayName } from "@/lib/labels";
+import { HOUSE_SHORT, admissionSummary, personDisplayName } from "@/lib/labels";
 import { getRoom } from "@/lib/rooms";
 import type { Person } from "@/lib/types";
 
@@ -7,7 +7,7 @@ export function AdmissionPack({ person }: { person: Person }) {
   const overview = withinPackUrl(person);
   const room = person.room_id ? getRoom(person.room_id) : null;
   if (!overview || !person.house) return null;
-  const kind = person.admission_kind === "detox_containment" ? "Detox / containment" : "Program";
+  const kind = admissionSummary(person) || "Treatment";
 
   return (
     <section className="rounded-3xl border border-sage/40 bg-paper p-6">

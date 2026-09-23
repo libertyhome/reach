@@ -1,5 +1,6 @@
 import { writeAudit } from "./audit";
 import { assertCommercialPatch, LEAD_SOURCE_SAFE_FIELDS } from "./field-gate";
+import { admissionSummary } from "./labels";
 import { newId } from "./passwords";
 import { getPerson, insertPerson, replacePerson, roomOccupant } from "./people";
 import { getRoom } from "./rooms";
@@ -75,6 +76,8 @@ function blankPerson(partial: Partial<Person> & Pick<Person, "first_name" | "las
     within_handoff_status: partial.within_handoff_status ?? "none",
     within_client_id: partial.within_client_id ?? "",
     admission_kind: partial.admission_kind ?? "",
+    detox_first: partial.detox_first ?? 0,
+    expected_detox_nights: partial.expected_detox_nights ?? 0,
     admitted_at: partial.admitted_at ?? "",
     archived_at: partial.archived_at ?? "",
     created_at: partial.created_at ?? now,
@@ -147,6 +150,9 @@ export function applyPersonPatch(
     created_at: current.created_at,
     updated_at: nowIso(),
   };
+
+  const detoxError = detoxStateError(next);
+  if (detoxError) return { ok: false as const, error: detoxError };
 
   if (action === "lead_source") {
     next.stage = current.stage;
@@ -297,6 +303,10 @@ export function confirmAdmit(
     counsellorUserId?: string;
     admissionDate?: string;
     plannedDischargeDate?: string;
+    /** "1" / "yes" when treatment needs detox before the programme. Short stay rejects this. */
+    detoxFirst?: string;
+    /** Whole nights, "1"–"5", required when detoxFirst is yes. */
+    expectedDetoxNights?: string;
   } = {},
 ) {
   const current = getPerson(id);
@@ -308,7 +318,7 @@ export function confirmAdmit(
     return { ok: false as const, error: "Finish the commercial checklist before confirming admit." };
   }
   if (!ADMISSION_KINDS.includes(admissionKind as AdmissionKind)) {
-    return { ok: false as const, error: "Choose program or detox / containment before confirming admit." };
+    return { ok: false as const, error: "Choose Treatment or Short stay before confirming admit." };
   }
   const room = getRoom(roomId);
   if (!room) return { ok: false as const, error: "Choose a vacant room." };
@@ -326,11 +336,18 @@ export function confirmAdmit(
   }
 
   const kind = admissionKind as AdmissionKind;
+  const detox = resolveDetoxOnAdmit(kind, options.detoxFirst, options.expectedDetoxNights, current);
+  if (!detox.ok) return detox;
+
   const houseName = room.house === "manor" ? "Manor" : "Lodge";
-  const kindLabel = kind === "detox_containment" ? "detox / containment" : "program";
   const phaseBit =
     room.house === "manor" ? ` · Phase ${manor_phase}` : room.house === "lodge" ? " · Phase 3" : "";
   const admission_date = options.admissionDate || current.admission_date || nowIso().slice(0, 10);
+  const summaryKind = admissionSummary({
+    admission_kind: kind,
+    detox_first: detox.detox_first,
+    expected_detox_nights: detox.expected_detox_nights,
+  });
   return applyPersonPatch(
     id,
     {
@@ -348,11 +365,101 @@ export function confirmAdmit(
       within_handoff_status: "pack_ready",
       within_client_id: current.within_client_id || withinClientIdFor(current.id),
       admission_kind: kind,
+      detox_first: detox.detox_first,
+      expected_detox_nights: detox.expected_detox_nights,
     },
     actor,
     "admit",
-    `Confirmed admit to ${houseName} room ${room.name}${phaseBit} · Within admission pack (${kindLabel})`,
+    `Confirmed admit to ${houseName} room ${room.name}${phaseBit} · Within admission pack (${summaryKind})`,
   );
+}
+
+export function parseDetoxDays(raw: string | undefined | null) {
+  const text = String(raw ?? "").trim();
+  if (!/^[1-5]$/.test(text)) return null;
+  return Number(text);
+}
+
+/** Days already saved on the Detox commercial add-on, or 0 when it is off. */
+export function savedDetoxDays(person: Pick<Person, "detox_first" | "expected_detox_nights">) {
+  if (person.detox_first !== 1) return 0;
+  return parseDetoxDays(String(person.expected_detox_nights)) ?? 0;
+}
+
+/**
+ * Treatment may start with detox and continue into the programme on this admit.
+ * Short stay is detox-only / brief. A saved Detox day count is not replaced with 0.
+ */
+function resolveDetoxOnAdmit(
+  kind: AdmissionKind,
+  detoxFirstRaw: string | undefined,
+  nightsRaw: string | undefined,
+  current: Person,
+) {
+  const saved = savedDetoxDays(current);
+  const yes = detoxFirstRaw === "1" || detoxFirstRaw === "yes";
+
+  if (kind === "detox_containment") {
+    if (saved > 0) {
+      return {
+        ok: false as const,
+        error: `Detox add-on is set to ${saved} ${saved === 1 ? "day" : "days"}. Choose Treatment so that count is sent to Within, or turn Detox off for a short stay.`,
+      };
+    }
+    if (yes) {
+      return {
+        ok: false as const,
+        error: "Short stay is detox-only. Choose Treatment if they continue into the programme after detox.",
+      };
+    }
+    return { ok: true as const, detox_first: 0, expected_detox_nights: 0 };
+  }
+
+  const no = detoxFirstRaw === "0" || detoxFirstRaw === "no";
+  if (!yes && !no) {
+    return { ok: false as const, error: "Answer whether they need detox first before confirming admit." };
+  }
+
+  if (saved > 0) {
+    if (!yes) {
+      return {
+        ok: false as const,
+        error: `Detox add-on is set to ${saved} ${saved === 1 ? "day" : "days"}. Confirm those days on this admit so Within gets the same count, or turn Detox off in commercial add-ons.`,
+      };
+    }
+    const submitted = parseDetoxDays(nightsRaw);
+    if (submitted == null) {
+      return { ok: false as const, error: "Detox days must be from 1 to 5." };
+    }
+    if (submitted !== saved) {
+      return {
+        ok: false as const,
+        error: `Detox add-on is set to ${saved} ${saved === 1 ? "day" : "days"}. Confirm admit with ${saved} ${saved === 1 ? "day" : "days"} so Within receives that count.`,
+      };
+    }
+    return { ok: true as const, detox_first: 1, expected_detox_nights: saved };
+  }
+
+  if (!yes) return { ok: true as const, detox_first: 0, expected_detox_nights: 0 };
+
+  const submitted = parseDetoxDays(nightsRaw);
+  if (submitted == null) {
+    return { ok: false as const, error: "Detox days must be from 1 to 5." };
+  }
+  return { ok: true as const, detox_first: 1, expected_detox_nights: submitted };
+}
+
+function detoxStateError(person: Person) {
+  const days = parseDetoxDays(String(person.expected_detox_nights));
+  const on = person.detox_first === 1;
+  if (on && days == null) return "Detox add-on needs a day count from 1 to 5.";
+  if (!on && Number(person.expected_detox_nights)) {
+    return "Detox days stay on the file only while the Detox add-on is on.";
+  }
+  if (on && person.admission_kind === "detox_containment") {
+    return "Short stay cannot include the Detox add-on. Choose Treatment so the day count is sent to Within, or turn Detox off.";
+  }
+  return null;
 }
 
 function stageLabel(stage: Stage) {

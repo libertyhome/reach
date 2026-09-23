@@ -12,7 +12,8 @@ const PERSON_COLUMNS = `
   arp_signed, arf_signed, funding_confirmed, admission_date_agreed, room_offered,
   addon_medical_float, addon_nursing_medical_admission, addon_psych_admission, addon_overnight_supervision,
   transfer_extension_status, transfer_extension_notes,
-  within_handoff_status, within_client_id, admission_kind, admitted_at, archived_at, created_at, updated_at
+  within_handoff_status, within_client_id, admission_kind, detox_first, expected_detox_nights,
+  admitted_at, archived_at, created_at, updated_at
 `;
 
 function withDefaults(person: Person): Person {
@@ -43,7 +44,15 @@ function withDefaults(person: Person): Person {
     transfer_extension_notes: person.transfer_extension_notes ?? "",
     within_client_id: person.within_client_id ?? "",
     admission_kind: person.admission_kind ?? "",
+    detox_first: person.detox_first === 1 ? 1 : 0,
+    expected_detox_nights: normalizeDetoxNights(person.expected_detox_nights),
   };
+}
+
+function normalizeDetoxNights(value: number | undefined) {
+  const nights = Number(value);
+  if (!Number.isInteger(nights) || nights < 0 || nights > 5) return 0;
+  return nights;
 }
 
 export function listAdmitQueue(): Person[] {
@@ -103,7 +112,8 @@ export function insertPerson(person: Person) {
         @arp_signed, @arf_signed, @funding_confirmed, @admission_date_agreed, @room_offered,
         @addon_medical_float, @addon_nursing_medical_admission, @addon_psych_admission, @addon_overnight_supervision,
         @transfer_extension_status, @transfer_extension_notes,
-        @within_handoff_status, @within_client_id, @admission_kind, @admitted_at, @archived_at, @created_at, @updated_at
+        @within_handoff_status, @within_client_id, @admission_kind, @detox_first, @expected_detox_nights,
+        @admitted_at, @archived_at, @created_at, @updated_at
       )`,
     )
     .run(row);
@@ -164,6 +174,8 @@ export function replacePerson(person: Person) {
       within_handoff_status = @within_handoff_status,
       within_client_id = @within_client_id,
       admission_kind = @admission_kind,
+      detox_first = @detox_first,
+      expected_detox_nights = @expected_detox_nights,
       admitted_at = @admitted_at,
       archived_at = @archived_at,
       updated_at = @updated_at

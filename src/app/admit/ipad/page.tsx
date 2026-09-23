@@ -45,7 +45,7 @@ export default async function IpadAdmitPage({
         <div>
           <h1 className="serif text-4xl text-sage-deep">Admit</h1>
           <p className="mt-2 max-w-2xl text-muted">
-            Floor iPad hub. Confirm a ready client, then open the Within admission pack. One home-screen icon covers every form.
+            Floor iPad hub. Confirm a ready client — Treatment, with detox first if they need it, or Short stay — then open the Within admission pack. One home-screen icon covers every form.
           </p>
         </div>
         <div className="flex gap-2">

@@ -14,7 +14,7 @@ import { TransferExtensionForm } from "@/components/TransferExtensionForm";
 import { UndoBar } from "@/components/UndoBar";
 import { listAudit } from "@/lib/audit";
 import { listDocuments } from "@/lib/documents";
-import { HOUSE_SHORT, STAGE_LABEL, STAGE_NAV, personDisplayName } from "@/lib/labels";
+import { HOUSE_SHORT, STAGE_LABEL, STAGE_NAV, admissionSummary, personDisplayName } from "@/lib/labels";
 import { programPhaseFor } from "@/lib/occupancy";
 import { requireStaff } from "@/lib/page-helpers";
 import { getPerson } from "@/lib/people";
@@ -70,6 +70,7 @@ export default async function PersonPage({
               ? ` · ${person.room_privacy === "shared" ? "Shared" : "Private"}`
               : ""}
             {assignee ? ` · ${assignee.name.split(/\s+/)[0]}` : ""}
+            {admissionSummary(person) ? ` · ${admissionSummary(person)}` : ""}
           </p>
           {person.stage !== "resident" && preferred ? (
             <p className="mt-1 text-sm text-muted">
