@@ -68,9 +68,9 @@ export function admissionSummary(person: {
   if (person.admission_kind === "detox_containment") return ADMISSION_KIND_LABEL.detox_containment;
   if (person.admission_kind !== "program") return "";
   if (person.detox_first === 1) {
-    const nights = person.expected_detox_nights ?? 0;
-    const noun = nights === 1 ? "night" : "nights";
-    return `${ADMISSION_KIND_LABEL.program} · detox first, ${nights} ${noun}`;
+    const days = person.expected_detox_nights ?? 0;
+    const noun = days === 1 ? "day" : "days";
+    return `${ADMISSION_KIND_LABEL.program} · detox first, ${days} ${noun}`;
   }
   return ADMISSION_KIND_LABEL.program;
 }

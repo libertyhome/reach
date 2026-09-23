@@ -15,6 +15,7 @@ import {
   saveRoomPreference,
   updateLeadSource,
   applyPersonPatch,
+  parseDetoxDays,
 } from "@/lib/pipeline";
 import { PIPELINE_STAGES } from "@/lib/labels";
 import {
@@ -115,6 +116,15 @@ export async function updateFieldsAction(formData: FormData) {
   const addonPatch = Object.fromEntries(
     COMMERCIAL_ADDONS.map((item) => [item.key, formData.get(item.key) === "1" ? 1 : 0]),
   );
+  const detoxOn = formData.get("detox_first") === "1";
+  let detoxDays = 0;
+  if (detoxOn) {
+    const parsed = parseDetoxDays(formString(formData, "expected_detox_nights"));
+    if (parsed == null) {
+      redirect(`/people/${id}?error=${encodeURIComponent("Choose how many detox days (1–5).")}`);
+    }
+    detoxDays = parsed;
+  }
   const result = applyPersonPatch(
     id,
     {
@@ -143,6 +153,8 @@ export async function updateFieldsAction(formData: FormData) {
       assessment_details: formString(formData, "assessment_details"),
       assessment_notes: formString(formData, "assessment_notes"),
       ...addonPatch,
+      detox_first: detoxOn ? 1 : 0,
+      expected_detox_nights: detoxDays,
     },
     user,
     "field_edit",

@@ -1,4 +1,5 @@
 import { updateFieldsAction } from "@/app/actions";
+import { DetoxAddonFields } from "@/components/DetoxAddonFields";
 import { HOUSE_SHORT } from "@/lib/labels";
 import {
   COMMERCIAL_ADDONS,
@@ -185,8 +186,12 @@ export function PersonEditor({ person, staff }: { person: Person; staff: User[] 
       </fieldset>
       <fieldset className="rounded-2xl border border-line bg-linen px-4 py-3">
         <legend className="px-1 text-sm font-medium">Commercial add-ons</legend>
-        <p className="mb-3 text-xs text-muted">Optional line items for the commercial file — not clinical charges.</p>
+        <p className="mb-3 text-xs text-muted">
+          Optional line items for the commercial file — not clinical charges. Detox is optional before the programme:
+          turn it on, then choose 1–5 days. That day count is sent to Within on admit.
+        </p>
         <ul className="space-y-2">
+          <DetoxAddonFields detoxFirst={person.detox_first} expectedDetoxNights={person.expected_detox_nights} />
           {COMMERCIAL_ADDONS.map((item) => (
             <li key={item.key}>
               <label className="flex min-h-10 items-center gap-3">

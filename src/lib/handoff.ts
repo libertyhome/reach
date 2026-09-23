@@ -12,6 +12,8 @@ import type { AdmissionKind, House, Person, ProgramPhase } from "./types";
  *
  * Claim version stays 1. Detox intent is additive on the same token:
  * detoxFirst, expectedDetoxNights, detoxIntent.
+ * expectedDetoxNights is the Detox commercial add-on day count (1–5).
+ * A treatment token never replaces a recorded day count with 0.
  * Tokens minted before those fields verify as treatment-with-no-detox, or short stay
  * when admissionKind is detox_containment.
  */
@@ -158,6 +160,30 @@ function normalizeDetoxClaims(
   return { detoxFirst: false, expectedDetoxNights: 0, detoxIntent: "none" };
 }
 
+/**
+ * Day count from the Detox add-on. A recorded 1–5 is kept on treatment tokens.
+ * Returns null when a count would otherwise be replaced with 0.
+ */
+function detoxClaimsForPerson(
+  person: Pick<Person, "detox_first" | "expected_detox_nights">,
+  admissionKind: AdmissionKind,
+): Pick<HandoffClaims, "detoxFirst" | "expectedDetoxNights" | "detoxIntent"> | null {
+  const rawNights = Number(person.expected_detox_nights);
+  const nightsInRange = Number.isInteger(rawNights) && rawNights >= 1 && rawNights <= 5;
+  const flagged = person.detox_first === 1;
+
+  if (admissionKind === "detox_containment") {
+    if (flagged || nightsInRange || rawNights > 0) return null;
+    return { detoxFirst: false, expectedDetoxNights: 0, detoxIntent: "short_stay" };
+  }
+
+  if (flagged && !nightsInRange) return null;
+  if (nightsInRange) {
+    return { detoxFirst: true, expectedDetoxNights: rawNights, detoxIntent: "detox_first" };
+  }
+  return { detoxFirst: false, expectedDetoxNights: 0, detoxIntent: "none" };
+}
+
 export function claimsForPerson(person: Person, now = Date.now()): HandoffClaims | null {
   if (!person.house || person.stage !== "resident") return null;
   const room = person.room_id ? getRoom(person.room_id) : null;
@@ -165,10 +191,9 @@ export function claimsForPerson(person: Person, now = Date.now()): HandoffClaims
   if (!placement) return null;
   const admissionKind: AdmissionKind =
     person.admission_kind === "detox_containment" ? "detox_containment" : "program";
-  const detoxFirst = admissionKind === "program" && person.detox_first === 1;
-  const expectedDetoxNights = detoxFirst ? Number(person.expected_detox_nights) || 0 : 0;
-  const detoxIntent: DetoxIntent =
-    admissionKind === "detox_containment" ? "short_stay" : detoxFirst ? "detox_first" : "none";
+  const detox = detoxClaimsForPerson(person, admissionKind);
+  if (!detox) return null;
+  const { detoxFirst, expectedDetoxNights, detoxIntent } = detox;
   const docs = withinDocumentManifest(person.id);
   return {
     v: 1,

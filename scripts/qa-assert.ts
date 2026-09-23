@@ -120,6 +120,78 @@ undoEvent(checklistEdit.event.id, accounts.id);
 
 const vacantManor = listRooms("manor").find((room) => !roomOccupant(room.id));
 assert(vacantManor, "A vacant Manor room is required to check admit");
+
+const keptDays = claimsForPerson({ ...amelia, detox_first: 0, expected_detox_nights: 4 });
+assert.strictEqual(keptDays?.detoxFirst, true, "A recorded detox day count is not dropped from the handoff");
+assert.strictEqual(keptDays?.expectedDetoxNights, 4);
+assert.strictEqual(keptDays?.detoxIntent, "detox_first");
+const missingDays = claimsForPerson({ ...amelia, detox_first: 1, expected_detox_nights: 0 });
+assert.strictEqual(missingDays, null, "Detox on with no day count must not mint a zero-day token");
+const shortStayDays = claimsForPerson({
+  ...amelia,
+  admission_kind: "detox_containment",
+  detox_first: 0,
+  expected_detox_nights: 3,
+});
+assert.strictEqual(shortStayDays, null, "Short stay must not mint a token that zeroes a detox day count");
+
+const badAddon = applyPersonPatch(
+  noah.id,
+  { detox_first: 1, expected_detox_nights: 0 },
+  actor,
+  "field_edit",
+  "Detox add-on without days",
+);
+assert.strictEqual(badAddon.ok, false);
+const addon = applyPersonPatch(
+  noah.id,
+  { detox_first: 1, expected_detox_nights: 4 },
+  actor,
+  "field_edit",
+  "Detox add-on — 4 days",
+);
+assert.strictEqual(addon.ok, true);
+const wrongCount = confirmAdmit(noah.id, vacantManor.id, "program", actor, {
+  manorPhase: "1",
+  detoxFirst: "1",
+  expectedDetoxNights: "2",
+});
+assert.strictEqual(wrongCount.ok, false);
+if (!wrongCount.ok) assert.match(wrongCount.error, /4/);
+const clearDetox = confirmAdmit(noah.id, vacantManor.id, "program", actor, {
+  manorPhase: "1",
+  detoxFirst: "0",
+  expectedDetoxNights: "0",
+});
+assert.strictEqual(clearDetox.ok, false);
+const shortDropsDays = confirmAdmit(noah.id, vacantManor.id, "detox_containment", actor, { manorPhase: "1" });
+assert.strictEqual(shortDropsDays.ok, false);
+const synced = confirmAdmit(noah.id, vacantManor.id, "program", actor, {
+  manorPhase: "1",
+  detoxFirst: "1",
+  expectedDetoxNights: "4",
+});
+assert.strictEqual(synced.ok, true);
+if (synced.ok) {
+  assert.strictEqual(synced.person.detox_first, 1);
+  assert.strictEqual(synced.person.expected_detox_nights, 4);
+  assert.strictEqual(synced.person.admission_kind, "program");
+  const syncedClaims = claimsForPerson(synced.person);
+  assert.strictEqual(syncedClaims?.detoxFirst, true);
+  assert.strictEqual(syncedClaims?.expectedDetoxNights, 4);
+  assert.strictEqual(syncedClaims?.detoxIntent, "detox_first");
+  assert.strictEqual(verifyHandoff(signHandoff(syncedClaims!))?.expectedDetoxNights, 4);
+  const undoneSynced = undoEvent(synced.event.id, actor.id);
+  assert(undoneSynced.ok, "Undo synced detox admit");
+}
+if (addon.ok) {
+  const undoneAddon = undoEvent(addon.event.id, actor.id);
+  assert(undoneAddon.ok, "Undo detox add-on");
+}
+const noahAfterAddon = findPersonByName("Noah", "Botha");
+assert(noahAfterAddon && noahAfterAddon.stage === "admit", "Noah still on Admit after add-on undo");
+assert.strictEqual(noahAfterAddon.detox_first, 0);
+assert.strictEqual(noahAfterAddon.expected_detox_nights, 0);
 const missingDetoxAnswer = confirmAdmit(noah.id, vacantManor.id, "program", actor, { manorPhase: "1" });
 assert.strictEqual(missingDetoxAnswer.ok, false);
 const mixedShortStay = confirmAdmit(noah.id, vacantManor.id, "detox_containment", actor, {

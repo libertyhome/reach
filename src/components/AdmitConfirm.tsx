@@ -108,7 +108,11 @@ export function AdmitConfirm({ person, staff }: { person: Person; staff: User[] 
           />
         </label>
       </div>
-      <AdmissionTypeFields disabled={!ready} />
+      <AdmissionTypeFields
+        disabled={!ready}
+        detoxFirst={person.detox_first}
+        expectedDetoxNights={person.expected_detox_nights}
+      />
       <button
         type="submit"
         disabled={!ready}

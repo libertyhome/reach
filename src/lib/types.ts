@@ -49,7 +49,10 @@ export const ADMISSION_KIND_LABEL: Record<AdmissionKind, string> = {
   detox_containment: "Short stay",
 };
 
-/** Expected detox nights when a treatment admission starts with detox. */
+/**
+ * Detox days (1–5) when Treatment starts with the Detox commercial add-on.
+ * Stored as expected_detox_nights and sent on the Within handoff as expectedDetoxNights.
+ */
 export const EXPECTED_DETOX_NIGHTS = [1, 2, 3, 4, 5] as const;
 export type ExpectedDetoxNights = (typeof EXPECTED_DETOX_NIGHTS)[number];
 
@@ -155,9 +158,9 @@ export type Person = {
   within_handoff_status: HandoffStatus;
   within_client_id: string;
   admission_kind: AdmissionKind | "";
-  /** 1 when a treatment admission detoxes before the programme on the same admit. */
+  /** 1 when the Detox commercial add-on is on. Treatment then continues on this admission. */
   detox_first: number;
-  /** 1–5 when detox_first is 1; otherwise 0. */
+  /** 1–5 days when detox_first is 1; otherwise 0. Same count is sent to Within. */
   expected_detox_nights: number;
   admitted_at: string;
   archived_at: string;
@@ -249,6 +252,7 @@ export const COMMERCIAL_CHECKLIST = [
 
 export type ChecklistKey = (typeof COMMERCIAL_CHECKLIST)[number]["key"];
 
+/** Boolean commercial add-ons. Detox is separate: it also records a 1–5 day count. */
 export const COMMERCIAL_ADDONS = [
   { key: "addon_medical_float", label: "Medical float" },
   { key: "addon_nursing_medical_admission", label: "Nursing & medical admission" },
