@@ -1,14 +1,29 @@
 import assert from "assert";
 import { execSync } from "child_process";
+import {
+  type AccountingConnector,
+  LIBERTY_TENANT,
+  registerAccountingConnector,
+  sageConnector,
+} from "../src/lib/accounting/connector";
+import { canViewCreditors, canViewExecutive } from "../src/lib/access";
+import { clearAccountingFixtures, createCreditor, pullAccounting, readProfitAndLossStrip } from "../src/lib/creditors";
 import { getDb } from "../src/lib/db";
+import {
+  buildExecutiveAnalytics,
+  buildOccupancySnapshot,
+  parseAnalyticsFilters,
+  percentOf,
+  repeatUnclearedCounts,
+} from "../src/lib/executive";
 import { FORBIDDEN_CLINICAL_FIELDS } from "../src/lib/field-gate";
 import { claimsForPerson, signHandoff, verifyHandoff, withinClientIdFor } from "../src/lib/handoff";
 import { occupancyParityRow, programPhaseFor } from "../src/lib/occupancy";
-import { findPersonByName, occupancyCounts, roomOccupant } from "../src/lib/people";
+import { findPersonByName, listPeople, occupancyCounts, roomOccupant } from "../src/lib/people";
 import { applyPersonPatch, checklistComplete, confirmAdmit, updateLeadSource } from "../src/lib/pipeline";
 import { listRooms } from "../src/lib/rooms";
 import { seed } from "../src/lib/seed";
-import { authenticate, findUserById } from "../src/lib/users";
+import { authenticate, findUserById, listUsers } from "../src/lib/users";
 import { listAudit, undoEvent } from "../src/lib/audit";
 import { sessionTokenLooksValid } from "../src/lib/session";
 import { COMMERCIAL_CHECKLIST } from "../src/lib/types";
@@ -71,6 +86,79 @@ assert(parity.admission_date, "occupancy parity admission date");
 const occ = occupancyCounts();
 assert.strictEqual(occ.manor, 12, `Manor should be 12/21, got ${occ.manor}`);
 assert.strictEqual(occ.lodge, 9, `Lodge should be 9/16, got ${occ.lodge}`);
+
+const asOf = new Date("2026-09-24T12:00:00.000Z");
+const roster = listPeople();
+const staff = listUsers();
+const snap = buildOccupancySnapshot(roster, asOf);
+const manorOcc = snap.facilities.find((facility) => facility.house === "manor");
+const lodgeOcc = snap.facilities.find((facility) => facility.house === "lodge");
+assert(manorOcc && lodgeOcc, "Occupancy covers Manor and Lodge");
+assert.strictEqual(manorOcc.capacity, 21);
+assert.strictEqual(lodgeOcc.capacity, 16);
+assert.strictEqual(manorOcc.occupied, 12);
+assert.strictEqual(lodgeOcc.occupied, 9);
+assert.strictEqual(manorOcc.phases.find((phase) => phase.phase === "1")?.occupied, 12);
+assert.strictEqual(manorOcc.phases.find((phase) => phase.phase === "2")?.occupied, 0);
+assert.strictEqual(lodgeOcc.phases[0]?.phase, "3");
+assert.strictEqual(lodgeOcc.phases[0]?.occupied, 9);
+assert.strictEqual(snap.mtd.month, "2026-09");
+assert(snap.mtd.enquiries > 0, "MTD enquiries come from enquiry_date");
+assert(snap.mtd.admissions > 0, "MTD admissions come from admitted residents");
+assert(snap.arrivals.some((row) => row.name.includes("Aisha")), "Aisha is a confirmed arrival on 24 Sep");
+assert(!snap.arrivals.some((row) => row.name.includes("Ben")), "Unconfirmed expected arrival is not listed");
+assert(snap.discharges.some((row) => row.name.includes("Amelia")), "Amelia planned discharge is upcoming");
+assert(snap.hygiene.some((flag) => flag.name.includes("Priya") && flag.openGates.length > 0));
+assert(snap.hygiene.some((flag) => flag.name.includes("Aisha") && !flag.urgent));
+assert(!snap.hygiene.some((flag) => flag.name.includes("Noah")));
+assert(snap.residents.some((row) => row.id === amelia.id && row.lead_source && row.admission_date));
+
+const analyticsFilters = parseAnalyticsFilters({ from: "2026-08-01", to: "2026-09-30" }, staff, asOf);
+const analytics = buildExecutiveAnalytics(roster, staff, analyticsFilters);
+assert(analytics.enquiryCount > 0, "Enquiry volume uses enquiry_date");
+assert.strictEqual(
+  analytics.leadSourcePie.reduce((sum, slice) => sum + slice.value, 0),
+  analytics.enquiryCount,
+);
+assert(analytics.admissionEventCount > 0, "Admissions over time uses admission dates");
+assert.strictEqual(
+  analytics.admissionsOverTime.reduce((sum, point) => sum + (point.values[0] ?? 0), 0),
+  analytics.admissionEventCount,
+);
+assert.strictEqual(analytics.conversionPercent, percentOf(analytics.cohortAdmitted, analytics.enquiryCount));
+assert.strictEqual(analytics.demographics.status, "unavailable");
+assert(analytics.demographics.todo.startsWith("TODO:"), "Demographics stay a stub");
+const manorOnly = buildExecutiveAnalytics(roster, staff, { ...analyticsFilters, facility: "manor" });
+assert(manorOnly.enquiryCount <= analytics.enquiryCount);
+
+const repeats = repeatUnclearedCounts([
+  {
+    undone: 0,
+    action: "field_edit",
+    before_json: JSON.stringify({ deposit_received: 1 }),
+    after_json: JSON.stringify({ deposit_received: 0 }),
+  },
+  {
+    undone: 0,
+    action: "field_edit",
+    before_json: JSON.stringify({ deposit_received: 1 }),
+    after_json: JSON.stringify({ deposit_received: 0 }),
+  },
+  {
+    undone: 1,
+    action: "field_edit",
+    before_json: JSON.stringify({ deposit_received: 1 }),
+    after_json: JSON.stringify({ deposit_received: 0 }),
+  },
+]);
+assert.strictEqual(repeats.get("deposit_received"), 2, "Urgent when the same gate is uncleared more than once");
+
+const executive = authenticate("executive@liberty.local", "liberty");
+const financeUser = authenticate("finance@liberty.local", "liberty");
+assert(executive && canViewExecutive(executive) && canViewCreditors(executive));
+assert(financeUser && !canViewExecutive(financeUser) && canViewCreditors(financeUser));
+assert(!canViewExecutive({ role: "accounts" }) && !canViewCreditors({ role: "admissions" }));
+assert(!canViewCreditors({ role: "therapist" }));
 
 for (const email of ["therapist@liberty.local", "admissions@liberty.local", "accounts@liberty.local"]) {
   const user = authenticate(email, "liberty");
@@ -302,5 +390,115 @@ const tables = (
   getDb().prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[]
 ).map((row) => row.name);
 assert(tables.includes("person_documents"), "person_documents table required");
+assert(tables.includes("creditors"), "creditors table required");
+assert(tables.includes("accounting_pnl"), "accounting_pnl table required");
+
+const executiveActor = authenticate("executive@liberty.local", "liberty");
+assert(executiveActor, "Executive desk can sign in");
+const createdCreditor = createCreditor(
+  {
+    name: "QA Supplier",
+    facility: "manor",
+    contactName: "Accounts clerk",
+    email: "qa-supplier@example.invalid",
+    phone: "021 555 0199",
+    accountReference: "QA-1",
+    notes: "Scaffold row",
+  },
+  executiveActor.id,
+);
+assert(createdCreditor.ok, "Creditor create");
+if (createdCreditor.ok) {
+  assert.strictEqual(createdCreditor.sync.ok, false);
+  assert.strictEqual(createdCreditor.sync.status, "not_wired");
+  assert.strictEqual(createdCreditor.creditor.sync_state, "pending_push");
+}
+const beforePull = readProfitAndLossStrip();
+assert.strictEqual(beforePull.connectorId, "sage");
+assert.strictEqual(beforePull.wired, false);
+assert(beforePull.lines.every((line) => line.revenue === null && line.profitLoss === null));
+const sagePull = pullAccounting(executiveActor.id, new Date("2026-09-24T12:00:00.000Z"));
+assert.strictEqual(sagePull.imported, 0);
+assert.strictEqual(readProfitAndLossStrip().wired, false, "Sage stub must not invent P&L");
+
+const fixture: AccountingConnector = {
+  id: "fixture-ledger",
+  label: "Fixture ledger",
+  pushCreditor(payload) {
+    return { ok: true, status: "ok", data: { externalId: payload.externalId || "qa-pushed" } };
+  },
+  pushCreditorDelete() {
+    return { ok: true, status: "ok", data: { deleted: true } };
+  },
+  pullCreditors(company) {
+    if (company !== "manor") return { ok: true, status: "ok", data: [] };
+    return {
+      ok: true,
+      status: "ok",
+      data: [
+        {
+          reachId: "",
+          externalId: "qa-ext-1",
+          name: "QA Pulled Supplier",
+          facility: "manor",
+          contactName: "Ledger",
+          email: "",
+          phone: "",
+          accountReference: "EXT-1",
+          notes: "",
+        },
+      ],
+    };
+  },
+  pullProfitAndLoss(input) {
+    if (input.company === "lodge") {
+      return {
+        ok: true,
+        status: "ok",
+        data: {
+          company: input.company,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          currency: "ZAR",
+          revenue: null,
+          profitLoss: null,
+          sourcedAt: null,
+        },
+      };
+    }
+    return {
+      ok: true,
+      status: "ok",
+      data: {
+        company: input.company,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        currency: "ZAR",
+        revenue: 100,
+        profitLoss: -5,
+        sourcedAt: "2026-09-24T00:00:00.000Z",
+      },
+    };
+  },
+};
+
+registerAccountingConnector(LIBERTY_TENANT, fixture);
+try {
+  const pulled = pullAccounting(executiveActor.id, new Date("2026-09-24T12:00:00.000Z"));
+  assert.strictEqual(pulled.imported, 1, "Pluggable connector pull lands creditor rows");
+  const strip = readProfitAndLossStrip();
+  assert.strictEqual(strip.connectorId, "fixture-ledger");
+  assert.strictEqual(strip.lines.find((line) => line.company === "manor")?.revenue, 100);
+  assert.strictEqual(strip.lines.find((line) => line.company === "manor")?.profitLoss, -5);
+  assert.strictEqual(strip.lines.find((line) => line.company === "lodge")?.revenue, null);
+  assert.strictEqual(strip.lines.find((line) => line.company === "lodge")?.profitLoss, null);
+} finally {
+  registerAccountingConnector(LIBERTY_TENANT, sageConnector);
+  clearAccountingFixtures("fixture-ledger");
+  getDb().prepare(`DELETE FROM creditors WHERE name = ? OR external_id = ?`).run("QA Supplier", "qa-ext-1");
+  getDb().prepare(`DELETE FROM accounting_pnl WHERE connector_id = ?`).run("sage");
+}
+assert.strictEqual(readProfitAndLossStrip().wired, false, "Restored Sage strip stays empty");
+assert.strictEqual(readProfitAndLossStrip().connectorId, "sage");
 
 console.log("QA assertions passed.");

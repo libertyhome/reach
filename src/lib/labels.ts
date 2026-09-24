@@ -55,6 +55,8 @@ export const ROLE_LABEL: Record<Role, string> = {
   therapist: "Therapist",
   admissions: "Admissions",
   accounts: "Accounts",
+  finance: "Finance",
+  executive: "Executive",
 };
 
 export const PIPELINE_STAGES: Stage[] = ["enquiry", "next_steps", "approval", "admit"];

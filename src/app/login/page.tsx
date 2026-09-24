@@ -5,6 +5,8 @@ const accounts = [
   { role: "Therapist", email: "therapist@liberty.local" },
   { role: "Admissions", email: "admissions@liberty.local" },
   { role: "Accounts", email: "accounts@liberty.local" },
+  { role: "Finance", email: "finance@liberty.local" },
+  { role: "Executive", email: "executive@liberty.local" },
 ];
 
 export default async function LoginPage({
