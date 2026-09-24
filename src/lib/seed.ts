@@ -6,7 +6,7 @@ import { newId } from "./passwords";
 import { findPersonByName, insertPerson, replacePerson } from "./people";
 import { ensureRooms } from "./rooms";
 import type { House, LeadSource, Person, Stage } from "./types";
-import { upsertUser } from "./users";
+import { findUserByEmail, upsertUser } from "./users";
 
 const STAFF = [
   {
@@ -28,6 +28,20 @@ const STAFF = [
     email: "accounts@liberty.local",
     name: "Pieter Accounts",
     role: "accounts" as const,
+    password: "liberty",
+  },
+  {
+    id: "user_finance",
+    email: "finance@liberty.local",
+    name: "Finance Desk",
+    role: "finance" as const,
+    password: "liberty",
+  },
+  {
+    id: "user_executive",
+    email: "executive@liberty.local",
+    name: "Executive Desk",
+    role: "executive" as const,
     password: "liberty",
   },
 ];
@@ -314,9 +328,21 @@ function seedAmelia() {
   });
 }
 
+function ensureMissingStaff() {
+  for (const staff of STAFF) {
+    if (!findUserByEmail(staff.email)) {
+      upsertUser({ ...staff, createdAt: new Date().toISOString() });
+    }
+  }
+}
+
 export function seedIfEmpty() {
   const count = getDb().prepare(`SELECT COUNT(*) as c FROM users`).get() as { c: number };
-  if (count.c === 0) seed();
+  if (count.c === 0) {
+    seed();
+    return;
+  }
+  ensureMissingStaff();
 }
 
 export function seed() {

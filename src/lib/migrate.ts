@@ -320,5 +320,50 @@ export function migrate(db: Database.Database) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_finance_events_entity ON finance_events(entity_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS creditors (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      facility TEXT NOT NULL DEFAULT '',
+      contact_name TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      account_reference TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      external_id TEXT NOT NULL DEFAULT '',
+      sync_state TEXT NOT NULL DEFAULT 'local',
+      sync_note TEXT NOT NULL DEFAULT '',
+      last_sync_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_creditors_name ON creditors(name);
+
+    CREATE TABLE IF NOT EXISTS accounting_pnl (
+      id TEXT PRIMARY KEY,
+      connector_id TEXT NOT NULL,
+      company TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      currency TEXT NOT NULL DEFAULT '',
+      revenue REAL,
+      profit_loss REAL,
+      sourced_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS accounting_sync_log (
+      id TEXT PRIMARY KEY,
+      connector_id TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL DEFAULT '',
+      company TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      actor_id TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_accounting_sync_log_created ON accounting_sync_log(created_at);
   `);
 }

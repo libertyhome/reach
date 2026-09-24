@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { logoutAction } from "@/app/actions";
+import { canViewCreditors, canViewExecutive } from "@/lib/access";
 import { FINANCE_NAV, ROLE_LABEL, STAGE_NAV } from "@/lib/labels";
 import type { User } from "@/lib/types";
 import { BrandMark } from "./BrandMark";
@@ -40,6 +41,11 @@ export function AppShell({
   current?: string;
   children: React.ReactNode;
 }) {
+  const leadership = [
+    ...(canViewExecutive(user) ? [{ href: "/executive", label: "Executive" }] : []),
+    ...(canViewCreditors(user) ? [{ href: "/creditors", label: "Creditors" }] : []),
+  ];
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur-sm">
@@ -60,6 +66,11 @@ export function AppShell({
               </form>
             </div>
           </div>
+          {leadership.length > 0 ? (
+            <div className="border-b border-line/70 pb-2">
+              <NavPills items={leadership} current={current} />
+            </div>
+          ) : null}
           <NavPills items={STAGE_NAV} current={current} />
           <div className="flex flex-wrap items-center gap-2 border-t border-line/70 pt-2">
             <p className="text-xs uppercase tracking-wider text-muted">Finance / Admin</p>

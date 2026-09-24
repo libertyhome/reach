@@ -59,6 +59,12 @@ export function listAdmitQueue(): Person[] {
   return listPeopleByStage("admit");
 }
 
+export function listPeople(): Person[] {
+  return getDb()
+    .prepare(`SELECT * FROM people ORDER BY last_name ASC, first_name ASC`)
+    .all() as Person[];
+}
+
 export function listPeopleByStage(stage: Stage): Person[] {
   return getDb()
     .prepare(
