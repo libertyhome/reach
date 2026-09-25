@@ -1,6 +1,6 @@
 import { canSendToWithin } from "./access";
 import { writeAudit } from "./audit";
-import { listDocuments } from "./documents";
+import { documentReachPath, listDocuments } from "./documents";
 import { PACK_BUTTONS, handoffSecret, withinBaseUrl, withinClientIdFor } from "./handoff";
 import { HOUSE_LABEL } from "./labels";
 import { findUserById } from "./users";
@@ -243,7 +243,7 @@ export function buildAwaitingAdmission(
       kind: canonicalKind(doc.kind),
       title: doc.title,
       filename: doc.filename,
-      reachPath: `/api/documents/${doc.id}`,
+      reachPath: documentReachPath(doc.id),
       signed: false,
     }));
 

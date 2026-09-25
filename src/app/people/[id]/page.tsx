@@ -109,7 +109,7 @@ export default async function PersonPage({
           <ChecklistForm person={person} />
           <TransferExtensionForm person={person} />
           {person.stage === "admit" || person.within_waiting_status ? (
-            <SendToWithin person={person} user={user} confirm={query.confirm === "within"} />
+            <SendToWithin person={person} user={user} />
           ) : null}
           {person.stage === "resident" ? <AdmissionPack person={person} /> : null}
           {person.stage !== "resident" ? <HouseAssign person={person} /> : null}

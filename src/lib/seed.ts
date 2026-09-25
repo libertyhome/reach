@@ -201,10 +201,10 @@ function seedAmelia() {
     expected_arrival: "2026-09-12",
     admission_date: "2026-09-12",
     house_preference: "manor",
-    preferred_room_id: roomId("manor", "Yew"),
+    preferred_room_id: roomId("manor", "Willow"),
     assessment_details: "Family assessment completed; programme recommended.",
     assessment_notes: "Mother supportive. Ready for Manor Phase 1.",
-    commercial_notes: "Journey seed: Enquiries → Next Steps → Approval → Admit onto Manor Yew.",
+    commercial_notes: "Journey seed: Enquiries → Next Steps → Approval → Admit onto Manor Willow.",
     stage: "enquiry",
     created_at: iso(21, 8),
     updated_at: iso(21, 8),
@@ -295,8 +295,8 @@ function seedAmelia() {
     ...ready,
     stage: "resident",
     house: "manor",
-    room_id: roomId("manor", "Yew"),
-    preferred_room_id: roomId("manor", "Yew"),
+    room_id: roomId("manor", "Willow"),
+    preferred_room_id: roomId("manor", "Willow"),
     room_privacy: "private",
     manor_phase: "1",
     counsellor_user_id: "user_therapist",
@@ -334,7 +334,7 @@ function seedAmelia() {
   writeAudit({
     personId: enquiry.id,
     action: "admit",
-    summary: "Confirmed admit to Manor room Yew · Within admission pack (Treatment)",
+    summary: "Confirmed admit to Manor room Willow · Within admission pack (Treatment)",
     actorId: "user_admissions",
     before: ready,
     after: admitted,
@@ -369,32 +369,32 @@ export function seed() {
   seedAmelia();
 
   const manorOthers: [string, string, string, number][] = [
-    ["Maya", "Dlamini", "Oak", 40],
+    ["Maya", "Dlamini", "Willow", 40],
     ["James", "Okonkwo", "Willow", 36],
     ["Sophie", "Laurent", "Cedar", 33],
-    ["David", "Chen", "Olive", 30],
-    ["Leah", "Abrahams", "Fig", 28],
-    ["Marcus", "Reid", "Maple", 26],
-    ["Nina", "Petrova", "Birch", 24],
-    ["Oliver", "Brooks", "Alder", 22],
+    ["David", "Chen", "Cedar", 30],
+    ["Leah", "Abrahams", "Cedar", 28],
+    ["Marcus", "Reid", "Beech", 26],
+    ["Nina", "Petrova", "Chestnut", 24],
+    ["Oliver", "Brooks", "Chestnut", 22],
     ["Fatima", "Yusuf", "Elm", 20],
-    ["Ethan", "Clarke", "Ash", 18],
-    ["Zanele", "Mokoena", "Pine", 16],
+    ["Ethan", "Clarke", "Pepper", 18],
+    ["Zanele", "Mokoena", "Maple", 16],
   ];
   for (const [first, last, room, days] of manorOthers) {
     seedIfMissing(resident(first, last, "manor", room, days));
   }
 
   const lodge: [string, string, string, number][] = [
-    ["Jordan", "Naidoo", "Protea", 45],
-    ["Theo", "Botha", "Fynbos", 38],
-    ["Lindiwe", "Khumalo", "Restio", 34],
-    ["Daniel", "Meyer", "Aloe", 29],
-    ["Ryan", "Jacobs", "Daisy", 25],
-    ["Nomsa", "Radebe", "Iris", 21],
-    ["Alex", "Mthembu", "Lily", 17],
-    ["Camila", "Duarte", "Fern", 14],
-    ["Henrik", "Solberg", "Reed", 11],
+    ["Jordan", "Naidoo", "Room 1", 45],
+    ["Theo", "Botha", "Room 1", 38],
+    ["Lindiwe", "Khumalo", "Room 2", 34],
+    ["Daniel", "Meyer", "Room 2", 29],
+    ["Ryan", "Jacobs", "Room 3", 25],
+    ["Nomsa", "Radebe", "Room 3", 21],
+    ["Alex", "Mthembu", "Room 4", 17],
+    ["Camila", "Duarte", "Room 6", 14],
+    ["Henrik", "Solberg", "Room 6", 11],
   ];
   for (const [first, last, room, days] of lodge) {
     seedIfMissing(resident(first, last, "lodge", room, days));
@@ -547,7 +547,56 @@ export function seed() {
   backfillTrialFeedbackGates();
   backfillCindyOccupancyFields();
   backfillHandoffIds();
+  backfillCatalogRooms();
   seedFinance();
+}
+
+const SEEDED_RESIDENT_ROOMS: [string, string, House, string][] = [
+  ["Amelia", "Hart", "manor", "Willow"],
+  ["Maya", "Dlamini", "manor", "Willow"],
+  ["James", "Okonkwo", "manor", "Willow"],
+  ["Sophie", "Laurent", "manor", "Cedar"],
+  ["David", "Chen", "manor", "Cedar"],
+  ["Leah", "Abrahams", "manor", "Cedar"],
+  ["Marcus", "Reid", "manor", "Beech"],
+  ["Nina", "Petrova", "manor", "Chestnut"],
+  ["Oliver", "Brooks", "manor", "Chestnut"],
+  ["Fatima", "Yusuf", "manor", "Elm"],
+  ["Ethan", "Clarke", "manor", "Pepper"],
+  ["Zanele", "Mokoena", "manor", "Maple"],
+  ["Jordan", "Naidoo", "lodge", "Room 1"],
+  ["Theo", "Botha", "lodge", "Room 1"],
+  ["Lindiwe", "Khumalo", "lodge", "Room 2"],
+  ["Daniel", "Meyer", "lodge", "Room 2"],
+  ["Ryan", "Jacobs", "lodge", "Room 3"],
+  ["Nomsa", "Radebe", "lodge", "Room 3"],
+  ["Alex", "Mthembu", "lodge", "Room 4"],
+  ["Camila", "Duarte", "lodge", "Room 6"],
+  ["Henrik", "Solberg", "lodge", "Room 6"],
+];
+
+/** Demo residents created against retired room names move onto the current catalog. */
+function backfillCatalogRooms() {
+  const live = new Set((getDb().prepare(`SELECT id FROM rooms`).all() as { id: string }[]).map((row) => row.id));
+  const update = getDb().prepare(
+    `UPDATE people SET house = ?, room_id = ?, preferred_room_id = ? WHERE id = ?`,
+  );
+  for (const [first, last, house, room] of SEEDED_RESIDENT_ROOMS) {
+    const person = findPersonByName(first, last);
+    if (!person || person.stage !== "resident") continue;
+    if (person.room_id && live.has(person.room_id)) continue;
+    const id = roomId(house, room);
+    const preferred = person.preferred_room_id && live.has(person.preferred_room_id) ? person.preferred_room_id : id;
+    update.run(house, id, preferred, person.id);
+  }
+  const beech = roomId("manor", "Beech");
+  getDb()
+    .prepare(
+      `UPDATE people SET preferred_room_id = ?
+       WHERE first_name = 'Noah' AND last_name = 'Botha'
+         AND preferred_room_id NOT IN (SELECT id FROM rooms)`,
+    )
+    .run(beech);
 }
 
 /** Keep demo cards complete after schema gates land on an existing DB. */

@@ -24,7 +24,11 @@ import { claimsForPerson, signHandoff, verifyHandoff, withinClientIdFor } from "
 import { occupancyParityRow, programPhaseFor } from "../src/lib/occupancy";
 import { findPersonByName, insertPerson, listPeople, occupancyCounts, roomOccupant } from "../src/lib/people";
 import { applyPersonPatch, checklistComplete, confirmAdmit, updateLeadSource } from "../src/lib/pipeline";
+import { contentDispositionFor, documentReachPath, resolveUploadsRoot } from "../src/lib/documents";
+import { requestHasHandoffSecret } from "../src/lib/handoff";
+import { bedCapacity, roomId } from "../src/lib/houses";
 import { listRooms } from "../src/lib/rooms";
+import { adaptOccupancy, clearOccupancyCache, readHouseOccupancy } from "../src/lib/within-occupancy";
 import { seed } from "../src/lib/seed";
 import { authenticate, findUserById, listUsers } from "../src/lib/users";
 import { listAudit, undoEvent } from "../src/lib/audit";
@@ -53,7 +57,7 @@ const amelia = findPersonByName("Amelia", "Hart");
 assert(amelia, "Amelia Hart must be seeded");
 assert.strictEqual(amelia.stage, "resident");
 assert.strictEqual(amelia.house, "manor");
-assert(amelia.room_id.endsWith("yew"), "Amelia Hart must be on Manor room Yew");
+assert(amelia.room_id.endsWith("willow"), "Amelia Hart must be on Manor room Willow");
 assert.strictEqual(amelia.within_handoff_status, "pack_ready");
 assert.strictEqual(amelia.within_client_id, withinClientIdFor(amelia.id));
 assert.strictEqual(amelia.admission_kind, "program");
@@ -102,7 +106,7 @@ assert(parity.phase, "occupancy parity phase");
 assert(parity.admission_date, "occupancy parity admission date");
 
 const occ = occupancyCounts();
-assert.strictEqual(occ.manor, 12, `Manor should be 12/21, got ${occ.manor}`);
+assert.strictEqual(occ.manor, 12, `Manor should be 12/22, got ${occ.manor}`);
 assert.strictEqual(occ.lodge, 9, `Lodge should be 9/16, got ${occ.lodge}`);
 
 const asOf = new Date("2026-09-24T12:00:00.000Z");
@@ -112,8 +116,29 @@ const snap = buildOccupancySnapshot(roster, asOf);
 const manorOcc = snap.facilities.find((facility) => facility.house === "manor");
 const lodgeOcc = snap.facilities.find((facility) => facility.house === "lodge");
 assert(manorOcc && lodgeOcc, "Occupancy covers Manor and Lodge");
-assert.strictEqual(manorOcc.capacity, 21);
+assert.strictEqual(manorOcc.capacity, 22);
 assert.strictEqual(lodgeOcc.capacity, 16);
+assert.strictEqual(bedCapacity("manor"), 22);
+assert.strictEqual(bedCapacity("lodge"), 16);
+const manorRooms = listRooms("manor");
+const lodgeRooms = listRooms("lodge");
+assert.strictEqual(
+  manorRooms.map((room) => `${room.name}:${room.capacity}`).join(","),
+  "Willow:4,Cedar:4,Beech:2,Holly:1,Chestnut:4,Tulip:1,Elm:1,Oak:1,Pepper:2,Maple:2",
+);
+assert.strictEqual(
+  lodgeRooms.map((room) => `${room.name}:${room.capacity}`).join(","),
+  "Room 1:2,Room 2:2,Room 3:2,Room 4:2,Room 5:2,Room 6:3,Room 7:1,Room 8:2",
+);
+assert.strictEqual(
+  manorRooms.reduce((sum, room) => sum + room.capacity, 0),
+  22,
+);
+assert.strictEqual(
+  lodgeRooms.reduce((sum, room) => sum + room.capacity, 0),
+  16,
+);
+assert.strictEqual(manorRooms.some((room) => room.name === "Yew"), false);
 assert.strictEqual(manorOcc.occupied, 12);
 assert.strictEqual(lodgeOcc.occupied, 9);
 assert.strictEqual(manorOcc.phases.find((phase) => phase.phase === "1")?.occupied, 12);
@@ -718,12 +743,12 @@ const manorClient = qaPerson({
 
 assert.strictEqual(reachHouseFor(manorClient), "manor");
 assert.strictEqual(
-  reachHouseFor({ ...manorClient, house: "manor", room_id: "lodge-protea" }),
+  reachHouseFor({ ...manorClient, house: "manor", room_id: roomId("lodge", "Room 1") }),
   null,
   "Confirmed Manor and a Lodge room must not send",
 );
 assert.strictEqual(
-  reachHouseFor({ ...manorClient, house: "", house_preference: "manor", preferred_room_id: "lodge-protea" }),
+  reachHouseFor({ ...manorClient, house: "", house_preference: "manor", preferred_room_id: roomId("lodge", "Room 1") }),
   null,
   "Manor preference and a Lodge room must not send",
 );
@@ -765,7 +790,7 @@ const lodgeClient = qaPerson({
   first_name: "Lodge",
   last_name: "Only",
   house_preference: "lodge",
-  preferred_room_id: "lodge-protea",
+  preferred_room_id: roomId("lodge", "Room 1"),
   manor_phase: "1",
   admission_kind: "detox_containment",
 });
@@ -974,7 +999,7 @@ try {
     documentsComplete: boolean;
     house: string;
     phase: string;
-    documents: { kind: string }[];
+    documents: { kind: string; reachPath: string }[];
   };
   assert.ok(captured[0].authorization === `Bearer ${handoffSecretForTest}`, "Authorization must be the handoff bearer");
   assert.ok(!captured[0].body.includes(handoffSecretForTest), "Payload must not carry the handoff secret");
@@ -983,6 +1008,10 @@ try {
   assert.strictEqual(firstBody.house, "weltevreden_manor");
   assert.strictEqual(firstBody.phase, "2");
   assert.ok(!firstBody.documents.some((doc) => doc.kind === "coc"));
+  assert.ok(
+    firstBody.documents.every((doc) => doc.reachPath.startsWith("http") && doc.reachPath.includes("/api/documents/")),
+    "Within receives an absolute document URL",
+  );
 
   const second = await sendPersonToWithin(manorClient.id, admissionsActor, {
     baseUrl: mockBase,
@@ -1034,7 +1063,137 @@ try {
 }
 }
 
+async function runOccupancyQa() {
+  clearOccupancyCache();
+  const adapted = adaptOccupancy({
+    houses: [
+      {
+        house: "weltevreden_manor",
+        totals: { capacity: 22, occupied: 1 },
+        rooms: [
+          {
+            name: "Willow",
+            capacity: 4,
+            beds: [{ patientName: "Ada Nkosi", clientId: "client-ada", admissionDate: "2026-09-12" }, null],
+          },
+        ],
+      },
+      {
+        id: "liberty_lodge",
+        rooms: [
+          {
+            room_name: "Room 6",
+            bed_count: 3,
+            patients: [{ patient_name: "Sam Vale", client_id: "client-sam", admission_date: "2026-09-01" }],
+          },
+        ],
+      },
+    ],
+  });
+  assert(adapted?.manor && adapted.lodge, "Occupancy adapter keeps Manor and Lodge apart");
+  assert.strictEqual(adapted.manor.rooms[0].occupants[0].patientName, "Ada Nkosi");
+  assert.strictEqual(adapted.lodge.rooms[0].name, "Room 6");
+  assert.strictEqual(adapted.lodge.rooms[0].capacity, 3);
+  assert.strictEqual(adaptOccupancy({ ok: true }), null, "A non-census body must not replace the last sync");
+
+  const server = http.createServer((req, res) => {
+    if (req.headers.authorization !== "Bearer occupancy-secret") {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end("{}");
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        houses: [
+          {
+            house: "manor",
+            rooms: [
+              {
+                name: "Holly",
+                capacity: 1,
+                beds: [{ patientName: "Holly Guest", clientId: "c-holly", admissionDate: "2026-09-02" }],
+              },
+            ],
+          },
+          {
+            house: "lodge",
+            rooms: [
+              {
+                name: "Room 7",
+                capacity: 1,
+                beds: [{ patientName: "Lodge Guest", clientId: "c-lodge", admissionDate: "2026-09-03" }],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const live = await readHouseOccupancy("manor", {
+      baseUrl,
+      secret: "occupancy-secret",
+      now: new Date("2026-09-25T12:00:00.000Z"),
+      timeoutMs: 2000,
+    });
+    assert.strictEqual(live.live, true);
+    assert.strictEqual(live.unreachable, false);
+    assert.strictEqual(live.rooms.find((room) => room.name === "Holly")?.beds[0].patientName, "Holly Guest");
+    const willow = live.rooms.find((room) => room.name === "Willow");
+    assert(willow && willow.capacity === 4);
+    assert.ok(willow.beds.every((bed) => bed.status === "vacant"));
+
+    const lodge = await readHouseOccupancy("lodge", { baseUrl, secret: "occupancy-secret", timeoutMs: 2000 });
+    assert.strictEqual(lodge.rooms.find((room) => room.name === "Room 7")?.beds[0].patientName, "Lodge Guest");
+    assert.strictEqual(lodge.rooms.some((room) => room.name === "Holly"), false, "Manor rooms stay off the Lodge board");
+
+    const stale = await readHouseOccupancy("manor", {
+      baseUrl: "http://127.0.0.1:1",
+      secret: "occupancy-secret",
+      timeoutMs: 400,
+    });
+    assert.strictEqual(stale.unreachable, true);
+    assert.strictEqual(stale.known, true);
+    assert.strictEqual(stale.rooms.find((room) => room.name === "Holly")?.beds[0].patientName, "Holly Guest");
+    assert.ok(stale.syncedAtLabel, "Unreachable Within still shows when occupancy last synced");
+
+    clearOccupancyCache();
+    const none = await readHouseOccupancy("lodge", {
+      baseUrl: "http://127.0.0.1:1",
+      secret: "occupancy-secret",
+      timeoutMs: 400,
+    });
+    assert.strictEqual(none.known, false);
+    assert.strictEqual(none.occupied, 0);
+    assert.ok(none.rooms.every((room) => room.beds.every((bed) => bed.status === "unknown")));
+    assert.strictEqual(none.rooms.some((room) => room.name === "Willow"), false);
+  } finally {
+    clearOccupancyCache();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  assert.strictEqual(resolveUploadsRoot({ REACH_DB_PATH: "/data/reach.db" }), "/data/uploads");
+  assert.strictEqual(documentReachPath("doc 1", "https://reach.example"), "https://reach.example/api/documents/doc%201");
+  assert.ok(contentDispositionFor("application/pdf", "history.pdf").startsWith("inline"));
+  const authed = new Request("https://reach.example/api/documents/doc", {
+    headers: { Authorization: "Bearer occupancy-secret" },
+  });
+  const headerAuth = new Request("https://reach.example/api/documents/doc", {
+    headers: { "X-Reach-Handoff-Secret": "occupancy-secret" },
+  });
+  assert.strictEqual(requestHasHandoffSecret(authed, "occupancy-secret"), true);
+  assert.strictEqual(requestHasHandoffSecret(headerAuth, "occupancy-secret"), true);
+  assert.strictEqual(requestHasHandoffSecret(new Request("https://reach.example/api/documents/doc"), "occupancy-secret"), false);
+}
+
 runMockedWithinSend()
+  .then(() => runOccupancyQa())
   .then(() => {
     console.log("QA assertions passed.");
   })

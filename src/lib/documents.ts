@@ -4,9 +4,51 @@ import { getDb } from "./db";
 import { newId } from "./passwords";
 import type { DocumentKind, PersonDocument } from "./types";
 
+type UploadsEnv = {
+  REACH_UPLOADS_PATH?: string;
+  REACH_DB_PATH?: string;
+};
+
+/** Files sit beside the SQLite file so a Railway volume at /data keeps them across deploys. */
+export function resolveUploadsRoot(
+  env: UploadsEnv = {
+    REACH_UPLOADS_PATH: process.env.REACH_UPLOADS_PATH,
+    REACH_DB_PATH: process.env.REACH_DB_PATH,
+  },
+  cwd = process.cwd(),
+) {
+  if (env.REACH_UPLOADS_PATH) return env.REACH_UPLOADS_PATH;
+  if (env.REACH_DB_PATH) return path.join(path.dirname(env.REACH_DB_PATH), "uploads");
+  return path.join(cwd, "data", "uploads");
+}
+
 function uploadsRoot() {
-  if (process.env.REACH_UPLOADS_PATH) return process.env.REACH_UPLOADS_PATH;
-  return path.join(process.cwd(), "data", "uploads");
+  return resolveUploadsRoot();
+}
+
+export function reachPublicBaseUrl(
+  env: { REACH_PUBLIC_BASE_URL?: string; RAILWAY_PUBLIC_DOMAIN?: string } = {
+    REACH_PUBLIC_BASE_URL: process.env.REACH_PUBLIC_BASE_URL,
+    RAILWAY_PUBLIC_DOMAIN: process.env.RAILWAY_PUBLIC_DOMAIN,
+  },
+) {
+  const configured = env.REACH_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  if (configured) return configured;
+  const railway = env.RAILWAY_PUBLIC_DOMAIN?.trim();
+  if (railway) return railway.startsWith("http") ? railway.replace(/\/$/, "") : `https://${railway}`;
+  return "http://localhost:3001";
+}
+
+/** Absolute URL Within can request. Auth is the handoff bearer, not a Reach session cookie. */
+export function documentReachPath(id: string, base = reachPublicBaseUrl()) {
+  return `${base.replace(/\/$/, "")}/api/documents/${encodeURIComponent(id)}`;
+}
+
+export function contentDispositionFor(mimeType: string, filename: string) {
+  const mime = mimeType.toLowerCase();
+  const inline = mime.startsWith("image/") || mime.startsWith("text/") || mime === "application/pdf";
+  const safe = filename.replace(/["\r\n]/g, "") || "document";
+  return `${inline ? "inline" : "attachment"}; filename="${safe}"`;
 }
 
 function safeFilename(name: string) {
@@ -97,6 +139,6 @@ export function withinDocumentManifest(personId: string) {
       kind: doc.kind,
       title: doc.title,
       filename: doc.filename,
-      reachPath: `/api/documents/${doc.id}`,
+      reachPath: documentReachPath(doc.id),
     }));
 }

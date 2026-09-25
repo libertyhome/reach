@@ -2,7 +2,7 @@ import { writeAudit } from "./audit";
 import { assertCommercialPatch, LEAD_SOURCE_SAFE_FIELDS } from "./field-gate";
 import { admissionSummary, isNotConvertedReason } from "./labels";
 import { newId } from "./passwords";
-import { getPerson, insertPerson, replacePerson, roomOccupant } from "./people";
+import { getPerson, insertPerson, replacePerson, roomHasSpace } from "./people";
 import { getRoom } from "./rooms";
 import { withinClientIdFor } from "./handoff";
 import {
@@ -237,9 +237,12 @@ export function assignHouse(
     if (house && room.house !== house) {
       return { ok: false as const, error: "That room is not in the selected house." };
     }
-    const occupant = roomOccupant(roomId);
-    if (occupant && occupant.id !== id) {
-      return { ok: false as const, error: `${occupant.first_name} ${occupant.last_name} already has that room.` };
+    if (!roomHasSpace(room, id)) {
+      const beds = room.capacity || 1;
+      return {
+        ok: false as const,
+        error: `${room.name} is full (${beds} ${beds === 1 ? "bed" : "beds"}).`,
+      };
     }
     house = room.house;
   }
@@ -342,9 +345,12 @@ export function confirmAdmit(
   }
   const room = getRoom(roomId);
   if (!room) return { ok: false as const, error: "Choose a vacant room." };
-  const occupant = roomOccupant(roomId);
-  if (occupant && occupant.id !== id) {
-    return { ok: false as const, error: `${occupant.first_name} ${occupant.last_name} already has ${room.name}.` };
+  if (!roomHasSpace(room, id)) {
+    const beds = room.capacity || 1;
+    return {
+      ok: false as const,
+      error: `${room.name} is full (${beds} ${beds === 1 ? "bed" : "beds"}).`,
+    };
   }
 
   let manor_phase: ManorPhase | "" = "";

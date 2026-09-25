@@ -1,3 +1,4 @@
+import { bedCapacity } from "./houses";
 import {
   ADMISSION_KIND_LABEL,
   ALL_LEAD_SOURCES,
@@ -17,7 +18,7 @@ export const STAGE_NAV: { href: string; label: string; stage?: Stage }[] = [
   { href: "/next-steps", label: "Next Steps", stage: "next_steps" },
   { href: "/approval", label: "Account and Clinical Approval", stage: "approval" },
   { href: "/admit", label: "Admit", stage: "admit" },
-  { href: "/manor", label: "Manor (21)" },
+  { href: "/manor", label: "Manor (22)" },
   { href: "/lodge", label: "Lodge (16)" },
 ];
 
@@ -50,8 +51,8 @@ export const HOUSE_SHORT: Record<House, string> = {
 };
 
 export const HOUSE_CAPACITY: Record<House, number> = {
-  manor: 21,
-  lodge: 16,
+  manor: bedCapacity("manor"),
+  lodge: bedCapacity("lodge"),
 };
 
 export const LEAD_SOURCE_LABEL: Record<LeadSource, string> = {
