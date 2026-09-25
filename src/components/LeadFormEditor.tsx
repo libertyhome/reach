@@ -1,4 +1,7 @@
-import { MARKETING_LEAD_SOURCES } from "@/lib/marketing-sources";
+"use client";
+
+import { useState } from "react";
+import { MARKETING_LEAD_SOURCES, leadSourceNeedsWho } from "@/lib/marketing-sources";
 import type { LeadForm } from "@/lib/lead-forms";
 
 export function LeadFormEditor({
@@ -10,6 +13,10 @@ export function LeadFormEditor({
   form?: LeadForm;
   error?: string;
 }) {
+  const [source, setSource] = useState<string>(form?.lead_source ?? "meta_ads");
+  const [who, setWho] = useState(form?.lead_source_who ?? "");
+  const needsWho = leadSourceNeedsWho(source);
+
   return (
     <form action={action} className="max-w-xl space-y-4 rounded-3xl border border-line bg-paper p-6">
       {form ? <input type="hidden" name="id" value={form.id} /> : null}
@@ -30,15 +37,36 @@ export function LeadFormEditor({
       </label>
       <label className="block">
         <span className="text-sm font-medium">Lead source</span>
-        <select name="lead_source" defaultValue={form?.lead_source ?? "meta_ads"} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3">
-          {MARKETING_LEAD_SOURCES.map((source) => (
-            <option key={source.slug} value={source.slug}>
-              {source.label}
+        <select
+          name="lead_source"
+          value={source}
+          onChange={(event) => setSource(event.target.value)}
+          className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3"
+        >
+          {MARKETING_LEAD_SOURCES.map((item) => (
+            <option key={item.slug} value={item.slug}>
+              {item.label}
             </option>
           ))}
         </select>
-        <span className="mt-1 block text-sm text-muted">This is the badge on the New Enquiry.</span>
+        <span className="mt-1 block text-sm text-muted">Same list as a new enquiry. This is the badge on the New Enquiry.</span>
       </label>
+      {needsWho ? (
+        <label className="block">
+          <span className="text-sm font-medium">Who?</span>
+          <input
+            name="lead_source_who"
+            value={who}
+            onChange={(event) => setWho(event.target.value)}
+            className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3"
+          />
+          <span className="mt-1 block text-sm text-muted">
+            The coach, referrer, or personal contact. Each enquiry from this form keeps this name.
+          </span>
+        </label>
+      ) : (
+        <input type="hidden" name="lead_source_who" value="" />
+      )}
       <label className="block">
         <span className="text-sm font-medium">Campaign label</span>
         <input name="campaign" defaultValue={form?.campaign ?? ""} placeholder="Spring 2026" className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
@@ -61,7 +89,7 @@ export function LeadFormEditor({
         <span className="text-sm font-medium">External form id</span>
         <input name="external_key" defaultValue={form?.external_key ?? ""} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
         <span className="mt-1 block text-sm text-muted">
-          Optional Meta lead form id or Google Ads form id, so those webhooks use this source and campaign.
+          Optional Meta lead form id or Google Ads form id, so those webhooks use this source, Who, and campaign.
         </span>
       </label>
       <label className="block">

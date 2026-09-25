@@ -59,6 +59,12 @@ import {
 
 getDb();
 seed();
+{
+  const seededForms = getDb().prepare(`SELECT COUNT(*) AS n FROM lead_forms`).get() as { n: number };
+  const seededIntake = getDb().prepare(`SELECT COUNT(*) AS n FROM enquiry_intake`).get() as { n: number };
+  assert.strictEqual(seededForms.n, 0, "Production seed must not insert lead forms");
+  assert.strictEqual(seededIntake.n, 0, "Production seed must not insert lead-form enquiries");
+}
 
 const amelia = findPersonByName("Amelia", "Hart");
 assert(amelia, "Amelia Hart must be seeded");

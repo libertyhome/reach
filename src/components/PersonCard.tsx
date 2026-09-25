@@ -40,7 +40,7 @@ export function PersonCard({
               contact,
               person.phone,
               assignee ? assignee.name.split(/\s+/)[0] : "",
-              source?.callerNote ?? "",
+              person.caller_name ? "" : (source?.callerNote ?? ""),
             ]
               .filter(Boolean)
               .join(" · ")}

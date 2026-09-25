@@ -2,9 +2,11 @@ import { timingSafeEqual } from "crypto";
 import { applyPersonPatch, createEnquiry } from "./pipeline";
 import { getDb } from "./db";
 import {
+  canonicalLeadSource,
   isMarketingLeadSource,
-  legacyLeadSource,
+  leadSourceNeedsWho,
   marketingSourceLabel,
+  staffLeadSource,
   type MarketingLeadSource,
 } from "./marketing-sources";
 import { newId } from "./passwords";
@@ -35,6 +37,7 @@ export type LeadForm = {
   slug: string;
   lead_source: MarketingLeadSource;
   campaign: string;
+  lead_source_who: string;
   allowed_domains: string;
   external_key: string;
   privacy_url: string;
@@ -374,7 +377,13 @@ function clamp(value: string, max: number) {
 }
 
 function mapLeadForm(row: LeadForm): LeadForm {
-  return { ...row, active: row.active ? 1 : 0 };
+  const source = canonicalLeadSource(row.lead_source) ?? row.lead_source;
+  return {
+    ...row,
+    lead_source: source,
+    lead_source_who: row.lead_source_who ?? "",
+    active: row.active ? 1 : 0,
+  };
 }
 
 export function listLeadForms(): LeadForm[] {
@@ -419,6 +428,7 @@ export type LeadFormInput = {
   name: string;
   slug?: string;
   leadSource: string;
+  leadSourceWho?: string;
   campaign: string;
   allowedDomains: string;
   externalKey: string;
@@ -429,7 +439,8 @@ export type LeadFormInput = {
 export function saveLeadForm(input: LeadFormInput, id?: string): { ok: true; form: LeadForm } | { ok: false; error: string } {
   const name = clamp(input.name, 80);
   if (!name) return { ok: false, error: "Give the form a name." };
-  if (!isMarketingLeadSource(input.leadSource)) return { ok: false, error: "Choose a lead source." };
+  const leadSource = canonicalLeadSource(input.leadSource);
+  if (!leadSource || !isMarketingLeadSource(leadSource)) return { ok: false, error: "Choose a lead source." };
   const privacy = safePrivacyUrl(input.privacyUrl);
   if (!privacy) return { ok: false, error: "Privacy link must be a site path or an https URL." };
   const hosts = parseAllowedDomains(input.allowedDomains);
@@ -445,8 +456,9 @@ export function saveLeadForm(input: LeadFormInput, id?: string): { ok: true; for
   const row = {
     name,
     slug,
-    lead_source: input.leadSource,
+    lead_source: leadSource,
     campaign: clamp(input.campaign, 120),
+    lead_source_who: leadSourceNeedsWho(leadSource) ? clamp(input.leadSourceWho ?? "", 160) : "",
     allowed_domains: hosts.join("\n"),
     external_key: externalKey,
     privacy_url: privacy,
@@ -460,6 +472,7 @@ export function saveLeadForm(input: LeadFormInput, id?: string): { ok: true; for
       .prepare(
         `UPDATE lead_forms SET
           name = @name, slug = @slug, lead_source = @lead_source, campaign = @campaign,
+          lead_source_who = @lead_source_who,
           allowed_domains = @allowed_domains, external_key = @external_key, privacy_url = @privacy_url,
           active = @active, updated_at = @updated_at
         WHERE id = @id`,
@@ -473,9 +486,9 @@ export function saveLeadForm(input: LeadFormInput, id?: string): { ok: true; for
   getDb()
     .prepare(
       `INSERT INTO lead_forms (
-        id, name, slug, lead_source, campaign, allowed_domains, external_key, privacy_url, active, created_at, updated_at
+        id, name, slug, lead_source, campaign, lead_source_who, allowed_domains, external_key, privacy_url, active, created_at, updated_at
       ) VALUES (
-        @id, @name, @slug, @lead_source, @campaign, @allowed_domains, @external_key, @privacy_url, @active, @created_at, @updated_at
+        @id, @name, @slug, @lead_source, @campaign, @lead_source_who, @allowed_domains, @external_key, @privacy_url, @active, @created_at, @updated_at
       )`,
     )
     .run(created);
@@ -856,6 +869,7 @@ export async function acceptPublicSubmission(input: {
     formId: form.id,
     source: form.lead_source,
     campaign: form.campaign,
+    leadSourceWho: form.lead_source_who,
     channel: parsed.placement,
     parsed,
     externalId: "",
@@ -868,6 +882,7 @@ export function storeLead(input: {
   formId: string;
   source: MarketingLeadSource;
   campaign: string;
+  leadSourceWho?: string;
   channel: string;
   parsed: ParsedLead;
   externalId: string;
@@ -922,8 +937,11 @@ export function storeLead(input: {
           last_name: display.last || "—",
           email,
           phone: input.parsed.phone,
-          lead_source: legacyLeadSource(input.source),
+          lead_source: staffLeadSource(input.source),
           lead_source_note: input.campaign ? `${sourceLabel} · ${input.campaign}` : sourceLabel,
+          lead_source_who: leadSourceNeedsWho(input.source) ? clamp(input.leadSourceWho ?? "", 160) : "",
+          caller_name: input.parsed.callerName,
+          resident_name: input.parsed.residentName,
           contact_method: email ? "email" : "phone",
           assigned_to_user_id: assignee,
           referral_owner_user_id: assignee,
@@ -950,6 +968,7 @@ export function storeLead(input: {
 export function submitMappedLead(input: {
   source: MarketingLeadSource;
   campaign: string;
+  leadSourceWho?: string;
   formId?: string;
   channel: string;
   callerName: string;
@@ -983,6 +1002,7 @@ export function submitMappedLead(input: {
     formId: input.formId ?? "",
     source: input.source,
     campaign: input.campaign,
+    leadSourceWho: input.leadSourceWho,
     channel: input.channel,
     parsed,
     externalId: (input.externalId ?? "").slice(0, 200),

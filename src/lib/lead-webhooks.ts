@@ -107,8 +107,13 @@ async function defaultFetchMetaLead(leadId: string): Promise<GraphLead | null> {
 
 function sourceFor(externalKey: string, fallback: MarketingLeadSource) {
   const form = externalKey ? getLeadFormByExternalKey(externalKey) : null;
-  if (!form) return { formId: "", source: fallback, campaign: "" };
-  return { formId: form.id, source: form.lead_source, campaign: form.campaign };
+  if (!form) return { formId: "", source: fallback, campaign: "", leadSourceWho: "" };
+  return {
+    formId: form.id,
+    source: form.lead_source,
+    campaign: form.campaign,
+    leadSourceWho: form.lead_source_who,
+  };
 }
 
 export async function ingestMetaLeadgen(
@@ -159,6 +164,7 @@ export async function ingestMetaLeadgen(
     const saved = submitMappedLead({
       source: linked.source,
       campaign: linked.campaign,
+      leadSourceWho: linked.leadSourceWho,
       formId: linked.formId,
       channel: "meta",
       callerName,
@@ -226,13 +232,14 @@ export function ingestGoogleLead(body: unknown, providedKey: string, options?: {
   const house = pick(columns, [(name) => name.includes("house") || name.includes("facility")]);
   const message = pick(columns, [(name) => name.includes("message") || name.includes("comment")]);
   const formKey = String(payload.form_id ?? "").trim();
-  const linked = sourceFor(formKey, "google_ad_words");
+  const linked = sourceFor(formKey, "google_adwords");
   const campaign = linked.campaign || (payload.campaign_id ? `Campaign ${payload.campaign_id}` : "");
   const attribution: Partial<Attribution> = {};
   if (payload.gcl_id) attribution.gclid = String(payload.gcl_id).slice(0, 300);
   const saved = submitMappedLead({
     source: linked.source,
     campaign,
+    leadSourceWho: linked.leadSourceWho,
     formId: linked.formId,
     channel: "google",
     callerName,

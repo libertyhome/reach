@@ -440,7 +440,14 @@ export function migrate(db: Database.Database) {
   `);
 
   syncRoomCatalog(db);
+  migrateLeadForms(db);
+}
 
+/**
+ * Lead-form tables only. Creates missing tables and adds missing columns.
+ * Does not UPDATE, DELETE, or rebuild people, rooms, or bed assignments.
+ */
+export function migrateLeadForms(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS lead_forms (
       id TEXT PRIMARY KEY,
@@ -448,6 +455,7 @@ export function migrate(db: Database.Database) {
       slug TEXT NOT NULL UNIQUE,
       lead_source TEXT NOT NULL,
       campaign TEXT NOT NULL DEFAULT '',
+      lead_source_who TEXT NOT NULL DEFAULT '',
       allowed_domains TEXT NOT NULL DEFAULT '',
       external_key TEXT NOT NULL DEFAULT '',
       privacy_url TEXT NOT NULL DEFAULT '/privacy',
@@ -525,4 +533,11 @@ export function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_lead_hits ON lead_form_hits(ip, form_id, created_at);
   `);
+
+  const columns = new Set(
+    (db.prepare(`PRAGMA table_info(lead_forms)`).all() as { name: string }[]).map((column) => column.name),
+  );
+  if (!columns.has("lead_source_who")) {
+    db.exec(`ALTER TABLE lead_forms ADD COLUMN lead_source_who TEXT NOT NULL DEFAULT ''`);
+  }
 }

@@ -1,45 +1,42 @@
-import { LEAD_SOURCES, type LeadSource } from "./types";
+import { leadSourceLabel, isCurrentLeadSource } from "./labels";
+import { LEAD_SOURCES, LEAD_SOURCES_WITH_WHO, type LeadSource } from "./types";
 
 /**
- * Marketing lead sources for forms and webhooks.
- * The staff enquiry form's LEAD_SOURCES list is being replaced in a separate PR
- * (caller name, resident name, and this same source list). This file is the
- * form builder's source of truth. legacyLeadSource() maps onto today's enum
- * so existing cards still save, and falls back to whatever that enum contains
- * if the other PR changes it first.
+ * Form-builder sources are the current enquiry sources from #6.
+ * Labels and slugs come from LEAD_SOURCES so the badge and the staff form agree.
  */
-export const MARKETING_LEAD_SOURCES = [
-  { slug: "recovery_com", label: "Recovery.com", legacy: "website" },
-  { slug: "returning_client", label: "Returning Client", legacy: "other" },
-  { slug: "ex_resident", label: "Ex-resident", legacy: "other" },
-  { slug: "google_com", label: "Google.com", legacy: "website" },
-  { slug: "google_nl", label: "Google.nl", legacy: "website" },
-  { slug: "google_be", label: "Google.be", legacy: "website" },
-  { slug: "meta_ads", label: "Meta ads", legacy: "website" },
-  { slug: "google_ad_words", label: "Google ad words", legacy: "website" },
-  { slug: "recovery_coach", label: "Recovery Coach", legacy: "referral_partner" },
-  { slug: "referrer", label: "Referrer", legacy: "referral_partner" },
-  { slug: "personal_contact", label: "Personal Contact", legacy: "family" },
-] as const;
+export const MARKETING_LEAD_SOURCES = LEAD_SOURCES.map((slug) => ({
+  slug,
+  label: leadSourceLabel(slug),
+}));
 
-export type MarketingLeadSource = (typeof MARKETING_LEAD_SOURCES)[number]["slug"];
+export type MarketingLeadSource = (typeof LEAD_SOURCES)[number];
 
-const LEGACY_BY_SLUG = Object.fromEntries(
-  MARKETING_LEAD_SOURCES.map((source) => [source.slug, source.legacy]),
-) as Record<MarketingLeadSource, string>;
+/** Earlier drafts stored this slug. Read it as the current Google Ads source. */
+const SOURCE_ALIASES: Record<string, MarketingLeadSource> = {
+  google_ad_words: "google_adwords",
+};
+
+export function canonicalLeadSource(value: string): MarketingLeadSource | null {
+  if (isCurrentLeadSource(value)) return value;
+  return SOURCE_ALIASES[value] ?? null;
+}
 
 export function isMarketingLeadSource(value: string): value is MarketingLeadSource {
-  return Object.prototype.hasOwnProperty.call(LEGACY_BY_SLUG, value);
+  return canonicalLeadSource(value) != null;
+}
+
+export function leadSourceNeedsWho(source: string) {
+  const canonical = canonicalLeadSource(source);
+  return canonical != null && (LEAD_SOURCES_WITH_WHO as readonly string[]).includes(canonical);
 }
 
 export function marketingSourceLabel(source: string) {
-  return MARKETING_LEAD_SOURCES.find((item) => item.slug === source)?.label ?? source;
+  const canonical = canonicalLeadSource(source);
+  return canonical ? leadSourceLabel(canonical) : source;
 }
 
-/** Map a marketing source onto the staff lead_source column without assuming the other PR has landed. */
-export function legacyLeadSource(source: string): LeadSource {
-  const preferred = isMarketingLeadSource(source) ? LEGACY_BY_SLUG[source] : "other";
-  const values = LEAD_SOURCES as readonly string[];
-  if (values.includes(preferred)) return preferred as LeadSource;
-  return LEAD_SOURCES[0];
+/** Staff lead_source value for a form source. Current sources are stored as themselves. */
+export function staffLeadSource(source: string): LeadSource {
+  return canonicalLeadSource(source) ?? "other";
 }

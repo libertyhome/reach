@@ -16,7 +16,9 @@ import {
   saveLeadForm,
 } from "../src/lib/lead-forms";
 import { ingestGoogleLead, ingestMetaLeadgen, metaSignatureStatus, metaVerifyChallenge } from "../src/lib/lead-webhooks";
-import { MARKETING_LEAD_SOURCES, legacyLeadSource } from "../src/lib/marketing-sources";
+import { migrateLeadForms } from "../src/lib/migrate";
+import { canonicalLeadSource, leadSourceNeedsWho, MARKETING_LEAD_SOURCES } from "../src/lib/marketing-sources";
+import { LEAD_SOURCES, LEAD_SOURCES_WITH_WHO } from "../src/lib/types";
 import { getPerson } from "../src/lib/people";
 
 const LABELS = [
@@ -81,10 +83,27 @@ export async function assertLeadForms() {
   wipeQaLeadForms();
   try {
     assert.deepStrictEqual(
+      MARKETING_LEAD_SOURCES.map((source) => source.slug),
+      [...LEAD_SOURCES],
+    );
+    assert.deepStrictEqual(
       MARKETING_LEAD_SOURCES.map((source) => source.label),
       LABELS,
     );
-    assert.strictEqual(legacyLeadSource("meta_ads"), "website");
+    assert.strictEqual(canonicalLeadSource("meta_ads"), "meta_ads");
+    assert.strictEqual(canonicalLeadSource("google_ad_words"), "google_adwords");
+    assert.deepStrictEqual(
+      MARKETING_LEAD_SOURCES.filter((source) => leadSourceNeedsWho(source.slug)).map((source) => source.slug),
+      [...LEAD_SOURCES_WITH_WHO],
+    );
+    const beforePeople = getDb()
+      .prepare(`SELECT id, room_id, preferred_room_id, house, stage FROM people ORDER BY id`)
+      .all();
+    migrateLeadForms(getDb());
+    const afterPeople = getDb()
+      .prepare(`SELECT id, room_id, preferred_room_id, house, stage FROM people ORDER BY id`)
+      .all();
+    assert.deepStrictEqual(afterPeople, beforePeople, "Lead-form migration must not reset rooms or people");
     assert.strictEqual(canManageLeadForms({ role: "executive" }), true);
     assert.strictEqual(canManageLeadForms({ role: "admissions" }), false);
     assert.deepStrictEqual(parseAllowedDomains("https://www.Example.com/path, ads.example.com"), ["www.example.com", "ads.example.com"]);
@@ -173,7 +192,10 @@ export async function assertLeadForms() {
     assert.strictEqual(person.first_name, "Alex");
     assert.strictEqual(person.last_name, "Resident");
     assert.strictEqual(person.stage, "enquiry");
-    assert.strictEqual(person.lead_source, "website");
+    assert.strictEqual(person.lead_source, "meta_ads");
+    assert.strictEqual(person.lead_source_who, "");
+    assert.strictEqual(person.caller_name, "Jane Caller");
+    assert.strictEqual(person.resident_name, "Alex Resident");
     assert.strictEqual(person.lead_source_note, "Meta ads · QA Spring");
     assert.strictEqual(person.house_preference, "manor");
     const intake = getEnquiryIntake(person.id);
@@ -282,7 +304,8 @@ export async function assertLeadForms() {
     const linked = saveLeadForm({
       name: "QA Google",
       slug: "qa-google",
-      leadSource: "google_ad_words",
+      leadSource: "google_adwords",
+      leadSourceWho: "Should stay blank",
       campaign: "Search brand",
       allowedDomains: "",
       externalKey: "qa-google-form",
@@ -314,7 +337,9 @@ export async function assertLeadForms() {
     assert(googlePerson);
     assert.strictEqual(googlePerson.lead_source_note, "Google ad words · Search brand");
     const googleIntake = getEnquiryIntake(googlePerson.id);
-    assert.strictEqual(googleIntake?.intake_source, "google_ad_words");
+    assert.strictEqual(googlePerson.lead_source, "google_adwords");
+    assert.strictEqual(googlePerson.lead_source_who, "");
+    assert.strictEqual(googleIntake?.intake_source, "google_adwords");
     assert.strictEqual(googleIntake?.campaign, "Search brand");
     assert.strictEqual(googleIntake?.gclid, "qa-gclid-google");
     assert.ok(googlePerson.commercial_notes.includes("Test lead from Google Ads"));
@@ -373,6 +398,73 @@ export async function assertLeadForms() {
     assert.strictEqual(metaIntake?.campaign, "Instagram stories");
     assert.strictEqual(metaIntake?.country, "Belgium");
     assert.strictEqual(metaPerson.email, "qa-leadform-meta@example.invalid");
+    assert.strictEqual(metaPerson.lead_source, "meta_ads");
+
+    const coach = saveLeadForm({
+      name: "QA Coach",
+      slug: "qa-coach",
+      leadSource: "recovery_coach",
+      leadSourceWho: "Sam Coach",
+      campaign: "Coach desk",
+      allowedDomains: "",
+      externalKey: "",
+      privacyUrl: "/privacy",
+      active: true,
+    });
+    assert(coach.ok);
+    if (!coach.ok) return;
+    assert.strictEqual(coach.form.lead_source, "recovery_coach");
+    assert.strictEqual(coach.form.lead_source_who, "Sam Coach");
+    const coachSubmit = await acceptPublicSubmission({
+      slug: coach.form.slug,
+      fields: {
+        ...fields,
+        caller_name: "Casey Caller",
+        resident_name: "Riley Resident",
+        phone: "+27 82 555 0195",
+        email: "qa-leadform-coach@example.invalid",
+      },
+      ip: "qa-coach",
+      appHost: "localhost",
+    });
+    assert(coachSubmit.ok && !coachSubmit.dropped && coachSubmit.deduped === false);
+    if (!coachSubmit.ok || coachSubmit.dropped) return;
+    const coachPerson = getPerson(coachSubmit.personId);
+    assert.strictEqual(coachPerson?.lead_source, "recovery_coach");
+    assert.strictEqual(coachPerson?.lead_source_who, "Sam Coach");
+    assert.strictEqual(coachPerson?.caller_name, "Casey Caller");
+    const cleared = saveLeadForm(
+      {
+        name: "QA Coach",
+        slug: "qa-coach",
+        leadSource: "meta_ads",
+        leadSourceWho: "Sam Coach",
+        campaign: "Coach desk",
+        allowedDomains: "",
+        externalKey: "",
+        privacyUrl: "/privacy",
+        active: true,
+      },
+      coach.form.id,
+    );
+    assert(cleared.ok);
+    if (!cleared.ok) return;
+    assert.strictEqual(cleared.form.lead_source_who, "");
+    assert.strictEqual(getPerson(coachSubmit.personId)?.lead_source_who, "Sam Coach");
+
+    const alias = saveLeadForm({
+      name: "QA alias",
+      slug: "qa-alias",
+      leadSource: "google_ad_words",
+      campaign: "",
+      allowedDomains: "",
+      externalKey: "",
+      privacyUrl: "/privacy",
+      active: true,
+    });
+    assert(alias.ok);
+    if (!alias.ok) return;
+    assert.strictEqual(alias.form.lead_source, "google_adwords");
 
     const stub = await ingestMetaLeadgen(
       { entry: [{ changes: [{ field: "leadgen", value: { leadgen_id: "778899" } }] }] },
