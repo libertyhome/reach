@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { ChartLegend, LineChart, PieChart, chartColor } from "@/components/Charts";
 import type { ExecutiveAnalytics, OccupancySnapshot } from "@/lib/executive";
-import { HOUSE_SHORT, LEAD_SOURCE_LABEL, STAGE_LABEL } from "@/lib/labels";
-import { HOUSES, LEAD_SOURCES, PROGRAM_PHASES } from "@/lib/types";
+import { HOUSE_SHORT, leadSourceLabel, STAGE_LABEL } from "@/lib/labels";
+import { ALL_LEAD_SOURCES, HOUSES, PROGRAM_PHASES } from "@/lib/types";
 
 function monthLabel(month: string) {
   const date = new Date(`${month}-01T00:00:00.000Z`);
@@ -213,9 +213,9 @@ export function ExecutiveBoard({
             Lead source
             <select name="leadSource" defaultValue={filters.leadSource} className="mt-1 min-h-11 w-full rounded-xl border border-line bg-linen px-3">
               <option value="all">All sources</option>
-              {LEAD_SOURCES.map((source) => (
+              {ALL_LEAD_SOURCES.map((source) => (
                 <option key={source} value={source}>
-                  {LEAD_SOURCE_LABEL[source]}
+                  {leadSourceLabel(source)}
                 </option>
               ))}
             </select>

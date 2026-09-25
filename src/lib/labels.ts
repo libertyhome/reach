@@ -1,4 +1,16 @@
-import { ADMISSION_KIND_LABEL, type AdmissionKind, type House, type LeadSource, type Role, type Stage } from "./types";
+import {
+  ADMISSION_KIND_LABEL,
+  ALL_LEAD_SOURCES,
+  LEAD_SOURCES,
+  LEGACY_LEAD_SOURCES,
+  NOT_CONVERTED_REASONS,
+  type AdmissionKind,
+  type House,
+  type LeadSource,
+  type NotConvertedReason,
+  type Role,
+  type Stage,
+} from "./types";
 
 export const STAGE_NAV: { href: string; label: string; stage?: Stage }[] = [
   { href: "/enquiries", label: "Enquiries", stage: "enquiry" },
@@ -43,6 +55,17 @@ export const HOUSE_CAPACITY: Record<House, number> = {
 };
 
 export const LEAD_SOURCE_LABEL: Record<LeadSource, string> = {
+  recovery_com: "Recovery.com",
+  returning_client: "Returning Client",
+  ex_resident: "Ex-resident",
+  google_com: "Google.com",
+  google_nl: "Google.nl",
+  google_be: "Google.be",
+  meta_ads: "Meta ads",
+  google_adwords: "Google ad words",
+  recovery_coach: "Recovery Coach",
+  referrer: "Referrer",
+  personal_contact: "Personal Contact",
   family: "Family",
   self: "Self",
   gp: "GP",
@@ -50,6 +73,44 @@ export const LEAD_SOURCE_LABEL: Record<LeadSource, string> = {
   referral_partner: "Referral partner",
   other: "Other",
 };
+
+export const NOT_CONVERTED_REASON_LABEL: Record<NotConvertedReason, string> = {
+  location_mismatch: "Location Mismatch",
+  chose_competitor: "Chose Competitor",
+  affordability_above_budget: "Affordability issue – Above budget",
+  affordability_copayment: "Affordability – Co-payment",
+  unresponsive: "Unresponsive",
+  unsuitability_adolescent: "Unsuitability – Adolescent",
+  clinical_unsuitability: "Clinical Unsuitability",
+};
+
+export function isLeadSource(value: string): value is LeadSource {
+  return (ALL_LEAD_SOURCES as readonly string[]).includes(value);
+}
+
+export function isCurrentLeadSource(value: string): value is (typeof LEAD_SOURCES)[number] {
+  return (LEAD_SOURCES as readonly string[]).includes(value);
+}
+
+export function isNotConvertedReason(value: string): value is NotConvertedReason {
+  return (NOT_CONVERTED_REASONS as readonly string[]).includes(value);
+}
+
+export function leadSourceLabel(source: string) {
+  return isLeadSource(source) ? LEAD_SOURCE_LABEL[source] : source;
+}
+
+export function notConvertedReasonLabel(reason: string) {
+  return isNotConvertedReason(reason) ? NOT_CONVERTED_REASON_LABEL[reason] : reason;
+}
+
+/** New sources, plus the saved legacy value so an old enquiry is not rewritten on save. */
+export function leadSourceOptions(current: string): LeadSource[] {
+  if ((LEGACY_LEAD_SOURCES as readonly string[]).includes(current)) {
+    return [current as LeadSource, ...LEAD_SOURCES];
+  }
+  return [...LEAD_SOURCES];
+}
 
 export const ROLE_LABEL: Record<Role, string> = {
   therapist: "Therapist",

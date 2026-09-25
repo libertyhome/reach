@@ -1,5 +1,23 @@
 import type Database from "better-sqlite3";
 
+/**
+ * Copy the old overnight-supervision flag onto detox/overnight supervision.
+ * Does not change lead source, notes, or day counts. Safe to run more than once.
+ * Turning the new add-on off also clears the old flag, so a later run does not turn it back on.
+ */
+export function mapOvernightSupervisionAddon(db: Database.Database) {
+  const columns = new Set(
+    (db.prepare(`PRAGMA table_info(people)`).all() as { name: string }[]).map((column) => column.name),
+  );
+  if (!columns.has("addon_detox_overnight") || !columns.has("addon_overnight_supervision")) return;
+  db.prepare(
+    `UPDATE people
+     SET addon_detox_overnight = 1
+     WHERE addon_overnight_supervision = 1
+       AND addon_detox_overnight = 0`,
+  ).run();
+}
+
 export function migrate(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -105,6 +123,30 @@ export function migrate(db: Database.Database) {
       ddl: `ALTER TABLE people ADD COLUMN addon_overnight_supervision INTEGER NOT NULL DEFAULT 0`,
     },
     {
+      name: "addon_nursing_days",
+      ddl: `ALTER TABLE people ADD COLUMN addon_nursing_days INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      name: "addon_medical_visa",
+      ddl: `ALTER TABLE people ADD COLUMN addon_medical_visa INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      name: "addon_detox_overnight",
+      ddl: `ALTER TABLE people ADD COLUMN addon_detox_overnight INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      name: "addon_detox_overnight_days",
+      ddl: `ALTER TABLE people ADD COLUMN addon_detox_overnight_days INTEGER NOT NULL DEFAULT 0`,
+    },
+    { name: "caller_name", ddl: `ALTER TABLE people ADD COLUMN caller_name TEXT NOT NULL DEFAULT ''` },
+    { name: "resident_name", ddl: `ALTER TABLE people ADD COLUMN resident_name TEXT NOT NULL DEFAULT ''` },
+    { name: "lead_source_who", ddl: `ALTER TABLE people ADD COLUMN lead_source_who TEXT NOT NULL DEFAULT ''` },
+    { name: "arp_email", ddl: `ALTER TABLE people ADD COLUMN arp_email TEXT NOT NULL DEFAULT ''` },
+    {
+      name: "not_converted_reason",
+      ddl: `ALTER TABLE people ADD COLUMN not_converted_reason TEXT NOT NULL DEFAULT ''`,
+    },
+    {
       name: "transfer_extension_status",
       ddl: `ALTER TABLE people ADD COLUMN transfer_extension_status TEXT NOT NULL DEFAULT ''`,
     },
@@ -184,6 +226,8 @@ export function migrate(db: Database.Database) {
       db.exec(column.ddl);
     }
   }
+
+  mapOvernightSupervisionAddon(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS person_documents (

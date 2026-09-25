@@ -12,6 +12,9 @@ export const COMMERCIAL_FIELDS = [
   "enquiry_date",
   "lead_source",
   "lead_source_note",
+  "lead_source_who",
+  "caller_name",
+  "resident_name",
   "contact_method",
   "assigned_to_user_id",
   "counsellor_user_id",
@@ -21,6 +24,7 @@ export const COMMERCIAL_FIELDS = [
   "referrer_phone",
   "next_of_kin_name",
   "next_of_kin_phone",
+  "arp_email",
   "funding_type",
   "funding_notes",
   "currency",
@@ -30,6 +34,7 @@ export const COMMERCIAL_FIELDS = [
   "house_preference",
   "preferred_room_id",
   "commercial_notes",
+  "not_converted_reason",
   "assessment_details",
   "assessment_notes",
   "stage",
@@ -47,8 +52,12 @@ export const COMMERCIAL_FIELDS = [
   "room_offered",
   "addon_medical_float",
   "addon_nursing_medical_admission",
+  "addon_nursing_days",
   "addon_psych_admission",
   "addon_overnight_supervision",
+  "addon_medical_visa",
+  "addon_detox_overnight",
+  "addon_detox_overnight_days",
   "transfer_extension_status",
   "transfer_extension_notes",
   "within_handoff_status",
@@ -117,4 +126,4 @@ export function assertCommercialPatch(patch: Record<string, unknown>) {
 }
 
 /** Lead source is a property. Changing it must not move stage or archive. */
-export const LEAD_SOURCE_SAFE_FIELDS = ["lead_source", "lead_source_note"] as const;
+export const LEAD_SOURCE_SAFE_FIELDS = ["lead_source", "lead_source_note", "lead_source_who"] as const;

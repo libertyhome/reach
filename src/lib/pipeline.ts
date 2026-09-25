@@ -1,6 +1,6 @@
 import { writeAudit } from "./audit";
 import { assertCommercialPatch, LEAD_SOURCE_SAFE_FIELDS } from "./field-gate";
-import { admissionSummary } from "./labels";
+import { admissionSummary, isNotConvertedReason } from "./labels";
 import { newId } from "./passwords";
 import { getPerson, insertPerson, replacePerson, roomOccupant } from "./people";
 import { getRoom } from "./rooms";
@@ -34,6 +34,9 @@ function blankPerson(partial: Partial<Person> & Pick<Person, "first_name" | "las
     enquiry_date: partial.enquiry_date ?? now.slice(0, 10),
     lead_source: partial.lead_source ?? "other",
     lead_source_note: partial.lead_source_note ?? "",
+    lead_source_who: partial.lead_source_who ?? "",
+    caller_name: partial.caller_name ?? "",
+    resident_name: partial.resident_name ?? "",
     contact_method: partial.contact_method ?? "",
     assigned_to_user_id: partial.assigned_to_user_id ?? "",
     counsellor_user_id: partial.counsellor_user_id ?? "",
@@ -43,6 +46,7 @@ function blankPerson(partial: Partial<Person> & Pick<Person, "first_name" | "las
     referrer_phone: partial.referrer_phone ?? "",
     next_of_kin_name: partial.next_of_kin_name ?? "",
     next_of_kin_phone: partial.next_of_kin_phone ?? "",
+    arp_email: partial.arp_email ?? "",
     funding_type: partial.funding_type ?? "private",
     funding_notes: partial.funding_notes ?? "",
     currency: partial.currency ?? "ZAR",
@@ -52,6 +56,7 @@ function blankPerson(partial: Partial<Person> & Pick<Person, "first_name" | "las
     house_preference: partial.house_preference ?? "",
     preferred_room_id: partial.preferred_room_id ?? "",
     commercial_notes: partial.commercial_notes ?? "",
+    not_converted_reason: partial.not_converted_reason ?? "",
     assessment_details: partial.assessment_details ?? "",
     assessment_notes: partial.assessment_notes ?? "",
     stage: partial.stage,
@@ -69,8 +74,12 @@ function blankPerson(partial: Partial<Person> & Pick<Person, "first_name" | "las
     room_offered: partial.room_offered ?? 0,
     addon_medical_float: partial.addon_medical_float ?? 0,
     addon_nursing_medical_admission: partial.addon_nursing_medical_admission ?? 0,
+    addon_nursing_days: partial.addon_nursing_days ?? 0,
     addon_psych_admission: partial.addon_psych_admission ?? 0,
     addon_overnight_supervision: partial.addon_overnight_supervision ?? 0,
+    addon_medical_visa: partial.addon_medical_visa ?? 0,
+    addon_detox_overnight: partial.addon_detox_overnight ?? 0,
+    addon_detox_overnight_days: partial.addon_detox_overnight_days ?? 0,
     transfer_extension_status: partial.transfer_extension_status ?? "",
     transfer_extension_notes: partial.transfer_extension_notes ?? "",
     within_handoff_status: partial.within_handoff_status ?? "none",
@@ -99,6 +108,9 @@ export function createEnquiry(
     phone?: string;
     lead_source?: LeadSource;
     lead_source_note?: string;
+    lead_source_who?: string;
+    caller_name?: string;
+    resident_name?: string;
     contact_method?: ContactMethod | "";
     assigned_to_user_id?: string;
     referral_owner_user_id?: string;
@@ -201,8 +213,15 @@ export function updateLeadSource(
   lead_source: LeadSource,
   lead_source_note: string,
   actor: User,
+  lead_source_who = "",
 ) {
-  return applyPersonPatch(id, { lead_source, lead_source_note }, actor, "lead_source", "Updated lead source");
+  return applyPersonPatch(
+    id,
+    { lead_source, lead_source_note, lead_source_who },
+    actor,
+    "lead_source",
+    "Updated lead source",
+  );
 }
 
 export function assignHouse(
@@ -284,14 +303,10 @@ export function saveRoomPreference(
   );
 }
 
-export function archivePerson(id: string, actor: User) {
-  return applyPersonPatch(
-    id,
-    { stage: "archived", archived_at: nowIso(), house: "", room_id: "" },
-    actor,
-    "archive",
-    "Archived enquiry",
-  );
+export function archivePerson(id: string, actor: User, reason = "") {
+  const patch: Partial<Person> = { stage: "archived", archived_at: nowIso(), house: "", room_id: "" };
+  if (isNotConvertedReason(reason)) patch.not_converted_reason = reason;
+  return applyPersonPatch(id, patch, actor, "archive", "Archived enquiry");
 }
 
 export function checklistComplete(person: Person) {
@@ -320,7 +335,7 @@ export function confirmAdmit(
     return { ok: false as const, error: "Only people on Admit can be confirmed into a house." };
   }
   if (!checklistComplete(current)) {
-    return { ok: false as const, error: "Finish the commercial checklist before confirming admit." };
+    return { ok: false as const, error: "Finish the admissions checklist before confirming admit." };
   }
   if (!ADMISSION_KINDS.includes(admissionKind as AdmissionKind)) {
     return { ok: false as const, error: "Choose Treatment or Short stay before confirming admit." };
@@ -382,6 +397,14 @@ export function confirmAdmit(
 export function parseDetoxDays(raw: string | undefined | null) {
   const text = String(raw ?? "").trim();
   if (!/^[1-5]$/.test(text)) return null;
+  return Number(text);
+}
+
+/** 0 means the add-on is on but days were not recorded. null is an out-of-range value. */
+export function parseAddonDays(raw: string | undefined | null) {
+  const text = String(raw ?? "").trim();
+  if (text === "" || text === "0") return 0;
+  if (!/^(?:[1-9]|1[0-4])$/.test(text)) return null;
   return Number(text);
 }
 

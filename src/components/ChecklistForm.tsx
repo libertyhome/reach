@@ -5,14 +5,15 @@ export function ChecklistForm({ person }: { person: Person }) {
   return (
     <form action={updateChecklistAction} className="space-y-4 rounded-3xl border border-line bg-paper p-6">
       <input type="hidden" name="id" value={person.id} />
-      <h2 className="serif text-2xl text-sage-deep">Commercial checklist</h2>
+      <h2 className="serif text-2xl text-sage-deep">Admissions checklist</h2>
       <p className="text-sm text-muted">
         Account and clinical approval are gates, not clinical notes. Therapy, meds, Form 7 and SoR stay in Within.
+        ARP is the person on the file. ARF is the form.
       </p>
       <p className="rounded-2xl bg-linen px-4 py-3 text-sm text-ink/90">
-        <span className="font-medium">Who ticks what:</span> Accounts ticks deposit received, ARP signed, and
-        accounts approved (on full payment). Admissions ticks funding confirmed after Accounts approved, plus ARF
-        signed once the Within ARF is done.
+        <span className="font-medium">Who ticks what:</span> Accounts ticks deposit received and accounts approved
+        (on full payment). Admissions ticks funding confirmed after Accounts approved, plus ARF signed once the
+        Within ARF is done.
       </p>
       <ul className="space-y-3">
         {COMMERCIAL_CHECKLIST.map((item) => (

@@ -1,10 +1,10 @@
 import { listAudit } from "./audit";
-import { HOUSE_CAPACITY, HOUSE_LABEL, HOUSE_SHORT, LEAD_SOURCE_LABEL, personDisplayName } from "./labels";
+import { HOUSE_CAPACITY, HOUSE_LABEL, HOUSE_SHORT, isLeadSource, leadSourceLabel, personDisplayName } from "./labels";
 import { facilityFor, occupancyParityRow, programPhaseFor } from "./occupancy";
 import {
   COMMERCIAL_CHECKLIST,
+  ALL_LEAD_SOURCES,
   HOUSES,
-  LEAD_SOURCES,
   PROGRAM_PHASES,
   type AuditEvent,
   type House,
@@ -365,9 +365,8 @@ export function parseAnalyticsFilters(
   }
   const facility = HOUSES.includes(params.facility as House) ? (params.facility as House) : "all";
   const phase = PROGRAM_PHASES.includes(params.phase as ProgramPhase) ? (params.phase as ProgramPhase) : "all";
-  const leadSource = LEAD_SOURCES.includes(params.leadSource as LeadSource)
-    ? (params.leadSource as LeadSource)
-    : "all";
+  const requestedSource = params.leadSource ?? "";
+  const leadSource = isLeadSource(requestedSource) ? requestedSource : "all";
   const owner =
     params.owner && params.owner !== "all" && staff.some((user) => user.id === params.owner)
       ? params.owner
@@ -394,10 +393,10 @@ export function buildExecutiveAnalytics(
     values: [enquiries.filter((person) => bucket.match(person.enquiry_date.slice(0, 10))).length],
   }));
 
-  const leadKeys = LEAD_SOURCES.filter((source) => enquiries.some((person) => person.lead_source === source));
+  const leadKeys = ALL_LEAD_SOURCES.filter((source) => enquiries.some((person) => person.lead_source === source));
   const leadSourcePie = leadKeys.map((source) => ({
     key: source,
-    label: LEAD_SOURCE_LABEL[source],
+    label: leadSourceLabel(source),
     value: enquiries.filter((person) => person.lead_source === source).length,
   }));
   const leadSourceTrend = buckets.map((bucket) => ({
@@ -428,7 +427,7 @@ export function buildExecutiveAnalytics(
     enquirySeriesName: "Enquiries",
     leadSourcePie,
     leadSourceTrend,
-    leadSourceSeries: leadKeys.map((source) => ({ key: source, label: LEAD_SOURCE_LABEL[source] })),
+    leadSourceSeries: leadKeys.map((source) => ({ key: source, label: leadSourceLabel(source) })),
     admissionsOverTime,
     referrerOptions,
     ownerOptions: staff.map((user) => ({ id: user.id, name: user.name })).sort((a, b) => a.name.localeCompare(b.name)),

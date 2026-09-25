@@ -16,7 +16,7 @@ export default async function NextStepsPage({
       <UndoBar eventId={params.undo} notice={params.notice} />
       <StageBoard
         title="Next Steps"
-        lede="Assessment calls, documents, and family follow-up. Still commercial — no clinical notes here. On each card, Accounts ticks deposit / ARP signed / accounts approved; Admissions ticks funding confirmed after Accounts approved."
+        lede="Assessment calls, the ARP contact, and family follow-up. Still commercial — no clinical notes here. Open a card for the ARP name, phone, and email. On the admissions checklist, Accounts ticks deposit received and accounts approved; Admissions ticks funding confirmed after Accounts approved, and ARF signed once that form is done."
         people={listPeopleByStage("next_steps")}
         highlightId={params.focus}
         empty="Nothing in Next Steps. Move a card from Enquiries when a conversation is booked."

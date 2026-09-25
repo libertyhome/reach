@@ -3,14 +3,16 @@ import type { House, Person, Stage } from "./types";
 
 const PERSON_COLUMNS = `
   id, first_name, last_name, preferred_name, email, phone, enquiry_date,
-  lead_source, lead_source_note, contact_method, assigned_to_user_id, counsellor_user_id,
+  lead_source, lead_source_note, lead_source_who, caller_name, resident_name,
+  contact_method, assigned_to_user_id, counsellor_user_id,
   referral_owner_user_id, referrer_name, referrer_contact_person, referrer_phone,
-  next_of_kin_name, next_of_kin_phone,
+  next_of_kin_name, next_of_kin_phone, arp_email,
   funding_type, funding_notes, currency, expected_arrival, admission_date, planned_discharge_date,
-  house_preference, preferred_room_id, commercial_notes, assessment_details, assessment_notes,
+  house_preference, preferred_room_id, commercial_notes, not_converted_reason, assessment_details, assessment_notes,
   stage, house, room_id, room_privacy, manor_phase, accounts_approved, clinical_approved, deposit_received,
   arp_signed, arf_signed, funding_confirmed, admission_date_agreed, room_offered,
-  addon_medical_float, addon_nursing_medical_admission, addon_psych_admission, addon_overnight_supervision,
+  addon_medical_float, addon_nursing_medical_admission, addon_nursing_days, addon_psych_admission,
+  addon_overnight_supervision, addon_medical_visa, addon_detox_overnight, addon_detox_overnight_days,
   transfer_extension_status, transfer_extension_notes,
   within_handoff_status, within_client_id, admission_kind, detox_first, expected_detox_nights,
   within_waiting_status, within_sent_at, within_sent_by_name, within_sent_by_user_id, within_waiting_id,
@@ -27,6 +29,11 @@ function withDefaults(person: Person): Person {
     referrer_name: person.referrer_name ?? "",
     referrer_contact_person: person.referrer_contact_person ?? "",
     referrer_phone: person.referrer_phone ?? "",
+    lead_source_who: person.lead_source_who ?? "",
+    caller_name: person.caller_name ?? "",
+    resident_name: person.resident_name ?? "",
+    arp_email: person.arp_email ?? "",
+    not_converted_reason: person.not_converted_reason ?? "",
     currency: person.currency ?? "ZAR",
     admission_date: person.admission_date ?? "",
     planned_discharge_date: person.planned_discharge_date ?? "",
@@ -39,8 +46,12 @@ function withDefaults(person: Person): Person {
     arf_signed: person.arf_signed ?? 0,
     addon_medical_float: person.addon_medical_float ?? 0,
     addon_nursing_medical_admission: person.addon_nursing_medical_admission ?? 0,
+    addon_nursing_days: normalizeAddonDays(person.addon_nursing_days),
     addon_psych_admission: person.addon_psych_admission ?? 0,
     addon_overnight_supervision: person.addon_overnight_supervision ?? 0,
+    addon_medical_visa: person.addon_medical_visa ?? 0,
+    addon_detox_overnight: person.addon_detox_overnight ?? 0,
+    addon_detox_overnight_days: normalizeAddonDays(person.addon_detox_overnight_days),
     transfer_extension_status: person.transfer_extension_status ?? "",
     transfer_extension_notes: person.transfer_extension_notes ?? "",
     within_client_id: person.within_client_id ?? "",
@@ -59,6 +70,12 @@ function normalizeDetoxNights(value: number | undefined) {
   const nights = Number(value);
   if (!Number.isInteger(nights) || nights < 0 || nights > 5) return 0;
   return nights;
+}
+
+function normalizeAddonDays(value: number | undefined) {
+  const days = Number(value);
+  if (!Number.isInteger(days) || days < 0 || days > 14) return 0;
+  return days;
 }
 
 export function listAdmitQueue(): Person[] {
@@ -115,14 +132,16 @@ export function insertPerson(person: Person) {
         ${PERSON_COLUMNS}
       ) VALUES (
         @id, @first_name, @last_name, @preferred_name, @email, @phone, @enquiry_date,
-        @lead_source, @lead_source_note, @contact_method, @assigned_to_user_id, @counsellor_user_id,
+        @lead_source, @lead_source_note, @lead_source_who, @caller_name, @resident_name,
+        @contact_method, @assigned_to_user_id, @counsellor_user_id,
         @referral_owner_user_id, @referrer_name, @referrer_contact_person, @referrer_phone,
-        @next_of_kin_name, @next_of_kin_phone,
+        @next_of_kin_name, @next_of_kin_phone, @arp_email,
         @funding_type, @funding_notes, @currency, @expected_arrival, @admission_date, @planned_discharge_date,
-        @house_preference, @preferred_room_id, @commercial_notes, @assessment_details, @assessment_notes,
+        @house_preference, @preferred_room_id, @commercial_notes, @not_converted_reason, @assessment_details, @assessment_notes,
         @stage, @house, @room_id, @room_privacy, @manor_phase, @accounts_approved, @clinical_approved, @deposit_received,
         @arp_signed, @arf_signed, @funding_confirmed, @admission_date_agreed, @room_offered,
-        @addon_medical_float, @addon_nursing_medical_admission, @addon_psych_admission, @addon_overnight_supervision,
+        @addon_medical_float, @addon_nursing_medical_admission, @addon_nursing_days, @addon_psych_admission,
+        @addon_overnight_supervision, @addon_medical_visa, @addon_detox_overnight, @addon_detox_overnight_days,
         @transfer_extension_status, @transfer_extension_notes,
         @within_handoff_status, @within_client_id, @admission_kind, @detox_first, @expected_detox_nights,
         @within_waiting_status, @within_sent_at, @within_sent_by_name, @within_sent_by_user_id, @within_waiting_id,
@@ -145,6 +164,9 @@ export function replacePerson(person: Person) {
       enquiry_date = @enquiry_date,
       lead_source = @lead_source,
       lead_source_note = @lead_source_note,
+      lead_source_who = @lead_source_who,
+      caller_name = @caller_name,
+      resident_name = @resident_name,
       contact_method = @contact_method,
       assigned_to_user_id = @assigned_to_user_id,
       counsellor_user_id = @counsellor_user_id,
@@ -154,6 +176,7 @@ export function replacePerson(person: Person) {
       referrer_phone = @referrer_phone,
       next_of_kin_name = @next_of_kin_name,
       next_of_kin_phone = @next_of_kin_phone,
+      arp_email = @arp_email,
       funding_type = @funding_type,
       funding_notes = @funding_notes,
       currency = @currency,
@@ -163,6 +186,7 @@ export function replacePerson(person: Person) {
       house_preference = @house_preference,
       preferred_room_id = @preferred_room_id,
       commercial_notes = @commercial_notes,
+      not_converted_reason = @not_converted_reason,
       assessment_details = @assessment_details,
       assessment_notes = @assessment_notes,
       stage = @stage,
@@ -180,8 +204,12 @@ export function replacePerson(person: Person) {
       room_offered = @room_offered,
       addon_medical_float = @addon_medical_float,
       addon_nursing_medical_admission = @addon_nursing_medical_admission,
+      addon_nursing_days = @addon_nursing_days,
       addon_psych_admission = @addon_psych_admission,
       addon_overnight_supervision = @addon_overnight_supervision,
+      addon_medical_visa = @addon_medical_visa,
+      addon_detox_overnight = @addon_detox_overnight,
+      addon_detox_overnight_days = @addon_detox_overnight_days,
       transfer_extension_status = @transfer_extension_status,
       transfer_extension_notes = @transfer_extension_notes,
       within_handoff_status = @within_handoff_status,

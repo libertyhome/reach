@@ -1,15 +1,25 @@
 import { createEnquiryAction } from "@/app/actions";
-import { LEAD_SOURCE_LABEL } from "@/lib/labels";
+import { LeadSourceFields } from "@/components/LeadSourceFields";
 import {
   CONTACT_METHODS,
   CONTACT_METHOD_LABEL,
-  LEAD_SOURCES,
   type User,
 } from "@/lib/types";
 
 export function NewEnquiryForm({ staff, currentUserId }: { staff: User[]; currentUserId: string }) {
   return (
     <form action={createEnquiryAction} className="mt-8 max-w-xl space-y-4 rounded-3xl border border-line bg-paper p-6">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-sm font-medium">Caller name</span>
+          <input name="caller_name" className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium">Resident name</span>
+          <input name="resident_name" className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
+        </label>
+      </div>
+      <p className="text-sm text-muted">The caller is not always the resident. First and last name are the name on this file.</p>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="text-sm font-medium">First name</span>
@@ -76,23 +86,10 @@ export function NewEnquiryForm({ staff, currentUserId }: { staff: User[]; curren
           <input name="referrer_phone" className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
         </label>
       </div>
-      <label className="block">
-        <span className="text-sm font-medium">Lead source</span>
-        <select name="lead_source" defaultValue="family" className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3">
-          {LEAD_SOURCES.map((source) => (
-            <option key={source} value={source}>
-              {LEAD_SOURCE_LABEL[source]}
-            </option>
-          ))}
-        </select>
-      </label>
+      <LeadSourceFields leadSource="" leadSourceNote="" leadSourceWho="" />
       <p className="text-sm text-muted">Lead source is a label only. It does not move or archive this card.</p>
       <label className="block">
-        <span className="text-sm font-medium">Lead source note</span>
-        <input name="lead_source_note" className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
-      </label>
-      <label className="block">
-        <span className="text-sm font-medium">Commercial notes</span>
+        <span className="text-sm font-medium">Notes</span>
         <textarea name="commercial_notes" rows={4} className="mt-1 w-full rounded-xl border border-line bg-linen px-3 py-2" />
       </label>
       <button type="submit" className="min-h-12 w-full rounded-full bg-sage text-paper">

@@ -1,6 +1,6 @@
 import { archiveAction, moveStageAction } from "@/app/actions";
-import { PIPELINE_STAGES, STAGE_LABEL } from "@/lib/labels";
-import type { Person } from "@/lib/types";
+import { NOT_CONVERTED_REASON_LABEL, PIPELINE_STAGES, STAGE_LABEL, notConvertedReasonLabel } from "@/lib/labels";
+import { NOT_CONVERTED_REASONS, type Person } from "@/lib/types";
 
 export function StageMove({ person }: { person: Person }) {
   if (person.stage === "resident") {
@@ -37,12 +37,34 @@ export function StageMove({ person }: { person: Person }) {
           </form>
         ))}
         {person.stage !== "archived" ? (
-          <form action={archiveAction}>
+          <form action={archiveAction} className="basis-full space-y-3 border-t border-line pt-4">
             <input type="hidden" name="id" value={person.id} />
+            <label className="block">
+              <span className="text-sm font-medium">Reason for not converting</span>
+              <select
+                name="not_converted_reason"
+                required
+                defaultValue={person.not_converted_reason}
+                className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3"
+              >
+                <option value="" disabled>
+                  Choose a reason
+                </option>
+                {NOT_CONVERTED_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {NOT_CONVERTED_REASON_LABEL[reason]}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button type="submit" className="min-h-11 rounded-full border border-terracotta/40 px-4 text-sm text-terracotta">
               Archive
             </button>
           </form>
+        ) : person.not_converted_reason ? (
+          <p className="basis-full text-sm text-muted">
+            Reason for not converting: {notConvertedReasonLabel(person.not_converted_reason)}
+          </p>
         ) : null}
       </div>
     </div>
