@@ -6,6 +6,7 @@ import {
   getLeadFormBySlug,
   allowedHostsFor,
 } from "@/lib/lead-forms";
+import { publicOrigin } from "@/lib/public-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,7 @@ export async function POST(request: Request, context: { params: Promise<{ slug: 
       { status: 200, headers },
     );
   }
+  const siteOrigin = await publicOrigin(request.headers);
   const back = fields.placement === "embed" ? `/f/${slug}/embed` : `/f/${slug}`;
   if (!result.ok) {
     const params = new URLSearchParams();
@@ -88,8 +90,8 @@ export async function POST(request: Request, context: { params: Promise<{ slug: 
     for (const key of ATTRIBUTION_KEYS) {
       if (fields[key]) params.set(key, fields[key]);
     }
-    return NextResponse.redirect(new URL(`${back}?${params.toString()}`, request.url), { status: 303, headers });
+    return NextResponse.redirect(new URL(`${back}?${params.toString()}`, siteOrigin), { status: 303, headers });
   }
   const thanks = fields.placement === "embed" ? `/f/${slug}/embed?sent=1` : `/f/${slug}/thanks`;
-  return NextResponse.redirect(new URL(thanks, request.url), { status: 303, headers });
+  return NextResponse.redirect(new URL(thanks, siteOrigin), { status: 303, headers });
 }

@@ -15,6 +15,7 @@ import {
   parseAllowedDomains,
   saveLeadForm,
 } from "../src/lib/lead-forms";
+import { POST as submitLeadForm } from "../src/app/api/lead-forms/[slug]/submit/route";
 import { ingestGoogleLead, ingestMetaLeadgen, metaSignatureStatus, metaVerifyChallenge } from "../src/lib/lead-webhooks";
 import { migrateLeadForms } from "../src/lib/migrate";
 import { canonicalLeadSource, leadSourceNeedsWho, MARKETING_LEAD_SOURCES } from "../src/lib/marketing-sources";
@@ -465,6 +466,58 @@ export async function assertLeadForms() {
     assert(alias.ok);
     if (!alias.ok) return;
     assert.strictEqual(alias.form.lead_source, "google_adwords");
+
+    const previousPublicUrl = process.env.REACH_PUBLIC_URL;
+    delete process.env.REACH_PUBLIC_URL;
+    const redirectBody = new URLSearchParams({
+      caller_name: "Redirect Tester",
+      phone: "+27 82 555 0199",
+      email: "qa-leadform-redirect@example.invalid",
+      popia_consent: "1",
+      placement: "hosted",
+    });
+    const internalRequest = new Request(`http://localhost:8080/api/lead-forms/${created.form.slug}/submit`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        host: "localhost:8080",
+        "x-forwarded-host": "reach.liberty.example, localhost:8080",
+        "x-forwarded-proto": "https, http",
+      },
+      body: redirectBody,
+    });
+    const redirected = await submitLeadForm(internalRequest, { params: Promise.resolve({ slug: created.form.slug }) });
+    const location = redirected.headers.get("location") || "";
+    assert.strictEqual(redirected.status, 303);
+    assert.ok(!location.includes("localhost"), location);
+    assert.strictEqual(location, `https://reach.liberty.example/f/${created.form.slug}/thanks`);
+
+    process.env.REACH_PUBLIC_URL = "https://forms.example.com/";
+    const configured = await submitLeadForm(
+      new Request(`http://localhost:8080/api/lead-forms/${created.form.slug}/submit`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          host: "localhost:8080",
+          "x-forwarded-host": "reach.liberty.example",
+          "x-forwarded-proto": "https",
+        },
+        body: new URLSearchParams({
+          caller_name: "Redirect Tester",
+          phone: "0825550199",
+          email: "qa-leadform-redirect@example.invalid",
+          placement: "embed",
+        }),
+      }),
+      { params: Promise.resolve({ slug: created.form.slug }) },
+    );
+    const configuredLocation = configured.headers.get("location") || "";
+    assert.strictEqual(configured.status, 303);
+    assert.ok(!configuredLocation.includes("localhost"), configuredLocation);
+    assert.ok(configuredLocation.startsWith(`https://forms.example.com/f/${created.form.slug}/embed?`));
+    assert.ok(configuredLocation.includes("error=consent"));
+    if (previousPublicUrl === undefined) delete process.env.REACH_PUBLIC_URL;
+    else process.env.REACH_PUBLIC_URL = previousPublicUrl;
 
     const stub = await ingestMetaLeadgen(
       { entry: [{ changes: [{ field: "leadgen", value: { leadgen_id: "778899" } }] }] },
