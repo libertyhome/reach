@@ -162,7 +162,7 @@ Mapped answers include full name (or first and last), email, phone, country, and
 
 ## Other host settings
 
-`REACH_PUBLIC_URL` (optional) is the origin shown in the copy-paste snippets, for example `https://reach.example.com`. When it is unset, snippets use the host you are browsing.
+`REACH_PUBLIC_URL` (optional) is the public origin, for example `https://reach.example.com`. Snippets and the thank-you redirect use it. When it is unset, Reach uses `x-forwarded-proto` and `x-forwarded-host` from the proxy, so a submit behind Railway is not sent to the internal localhost address.
 
 ## After the enquiry and bed-board changes
 
