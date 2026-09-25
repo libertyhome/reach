@@ -87,6 +87,7 @@ export const AUDIT_ACTIONS = [
   "house_assignment",
   "archive",
   "admit",
+  "within_send",
   "undo",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -162,6 +163,12 @@ export type Person = {
   detox_first: number;
   /** 1–5 days when detox_first is 1; otherwise 0. Same count is sent to Within. */
   expected_detox_nights: number;
+  /** Commercial pass-off: "" | "awaiting_admission" | "already_admitted". */
+  within_waiting_status: "" | "awaiting_admission" | "already_admitted";
+  within_sent_at: string;
+  within_sent_by_name: string;
+  within_sent_by_user_id: string;
+  within_waiting_id: string;
   admitted_at: string;
   archived_at: string;
   created_at: string;

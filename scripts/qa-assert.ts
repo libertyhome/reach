@@ -1,12 +1,13 @@
 import assert from "assert";
 import { execSync } from "child_process";
+import http from "http";
 import {
   type AccountingConnector,
   LIBERTY_TENANT,
   registerAccountingConnector,
   sageConnector,
 } from "../src/lib/accounting/connector";
-import { canViewCreditors, canViewExecutive } from "../src/lib/access";
+import { canSendToWithin, canViewCreditors, canViewExecutive } from "../src/lib/access";
 import { clearAccountingFixtures, createCreditor, pullAccounting, readProfitAndLossStrip } from "../src/lib/creditors";
 import { getDb } from "../src/lib/db";
 import {
@@ -19,14 +20,22 @@ import {
 import { FORBIDDEN_CLINICAL_FIELDS } from "../src/lib/field-gate";
 import { claimsForPerson, signHandoff, verifyHandoff, withinClientIdFor } from "../src/lib/handoff";
 import { occupancyParityRow, programPhaseFor } from "../src/lib/occupancy";
-import { findPersonByName, listPeople, occupancyCounts, roomOccupant } from "../src/lib/people";
+import { findPersonByName, insertPerson, listPeople, occupancyCounts, roomOccupant } from "../src/lib/people";
 import { applyPersonPatch, checklistComplete, confirmAdmit, updateLeadSource } from "../src/lib/pipeline";
 import { listRooms } from "../src/lib/rooms";
 import { seed } from "../src/lib/seed";
 import { authenticate, findUserById, listUsers } from "../src/lib/users";
 import { listAudit, undoEvent } from "../src/lib/audit";
 import { sessionTokenLooksValid } from "../src/lib/session";
-import { COMMERCIAL_CHECKLIST } from "../src/lib/types";
+import { COMMERCIAL_CHECKLIST, type Person } from "../src/lib/types";
+import {
+  buildAwaitingAdmission,
+  missingRequiredDocuments,
+  reachHouseFor,
+  requiredDocumentsFor,
+  sendPersonToWithin,
+  sentStatusLine,
+} from "../src/lib/within-send";
 
 getDb();
 seed();
@@ -501,4 +510,429 @@ try {
 assert.strictEqual(readProfitAndLossStrip().wired, false, "Restored Sage strip stays empty");
 assert.strictEqual(readProfitAndLossStrip().connectorId, "sage");
 
-console.log("QA assertions passed.");
+const admissionsActor = findUserById("user_admissions");
+const executiveActorForSend = findUserById("user_executive");
+const therapistActor = findUserById("user_therapist");
+const accountsActor = findUserById("user_accounts");
+assert(admissionsActor && executiveActorForSend && therapistActor && accountsActor, "Staff for Within send");
+assert.strictEqual(canSendToWithin(admissionsActor), true);
+assert.strictEqual(canSendToWithin(executiveActorForSend), true);
+assert.strictEqual(canSendToWithin(therapistActor), false);
+assert.strictEqual(canSendToWithin(accountsActor), false);
+
+assert(requiredDocumentsFor("manor").some((item) => item.kind === "manor_coc"));
+assert(!requiredDocumentsFor("manor").some((item) => item.kind === "coc" || item.kind === "visitors"));
+assert(requiredDocumentsFor("lodge").some((item) => item.kind === "coc"));
+assert(!requiredDocumentsFor("lodge").some((item) => item.kind === "manor_coc"));
+assert.strictEqual(requiredDocumentsFor("manor").some((item) => item.kind === "form7"), true);
+
+function qaPerson(partial: Partial<Person> & Pick<Person, "id" | "first_name" | "last_name">): Person {
+  const stamp = "2026-09-25T08:00:00.000Z";
+  return {
+    id: partial.id,
+    first_name: partial.first_name,
+    last_name: partial.last_name,
+    preferred_name: partial.preferred_name ?? "",
+    email: partial.email ?? "",
+    phone: partial.phone ?? "",
+    enquiry_date: "2026-09-01",
+    lead_source: "family",
+    lead_source_note: "",
+    contact_method: "phone",
+    assigned_to_user_id: "user_admissions",
+    counsellor_user_id: partial.counsellor_user_id ?? "",
+    referral_owner_user_id: "user_admissions",
+    referrer_name: partial.referrer_name ?? "",
+    referrer_contact_person: partial.referrer_contact_person ?? "",
+    referrer_phone: partial.referrer_phone ?? "",
+    next_of_kin_name: partial.next_of_kin_name ?? "",
+    next_of_kin_phone: partial.next_of_kin_phone ?? "",
+    funding_type: partial.funding_type ?? "medical_aid",
+    funding_notes: "",
+    currency: "ZAR",
+    expected_arrival: partial.expected_arrival ?? "",
+    admission_date: partial.admission_date ?? "2026-10-02",
+    planned_discharge_date: partial.planned_discharge_date ?? "2026-11-02",
+    house_preference: partial.house_preference ?? "",
+    preferred_room_id: partial.preferred_room_id ?? "",
+    commercial_notes: "",
+    assessment_details: "",
+    assessment_notes: "",
+    stage: partial.stage ?? "admit",
+    house: partial.house ?? "",
+    room_id: partial.room_id ?? "",
+    room_privacy: "",
+    manor_phase: partial.manor_phase ?? "",
+    accounts_approved: 1,
+    clinical_approved: 1,
+    deposit_received: 1,
+    arp_signed: partial.arp_signed ?? 0,
+    arf_signed: partial.arf_signed ?? 0,
+    funding_confirmed: 1,
+    admission_date_agreed: 1,
+    room_offered: 1,
+    addon_medical_float: 0,
+    addon_nursing_medical_admission: 0,
+    addon_psych_admission: 0,
+    addon_overnight_supervision: 0,
+    transfer_extension_status: "",
+    transfer_extension_notes: "",
+    within_handoff_status: "none",
+    within_client_id: partial.within_client_id ?? "",
+    admission_kind: partial.admission_kind ?? "",
+    detox_first: partial.detox_first ?? 0,
+    expected_detox_nights: partial.expected_detox_nights ?? 0,
+    within_waiting_status: partial.within_waiting_status ?? "",
+    within_sent_at: partial.within_sent_at ?? "",
+    within_sent_by_name: partial.within_sent_by_name ?? "",
+    within_sent_by_user_id: partial.within_sent_by_user_id ?? "",
+    within_waiting_id: partial.within_waiting_id ?? "",
+    admitted_at: "",
+    archived_at: "",
+    created_at: stamp,
+    updated_at: stamp,
+  };
+}
+
+const manorClient = qaPerson({
+  id: "p_qa_within_manor",
+  first_name: "Cipher",
+  last_name: "Row",
+  email: "cipher.row@example.invalid",
+  phone: "000111222",
+  house_preference: "manor",
+  preferred_room_id: "manor-beech",
+  manor_phase: "2",
+  referrer_name: "City Clinic",
+  referrer_contact_person: "Dr Nkosi",
+  referrer_phone: "0115550100",
+  next_of_kin_name: "Lerato Row",
+  next_of_kin_phone: "000111223",
+  counsellor_user_id: "user_therapist",
+  admission_kind: "program",
+  detox_first: 1,
+  expected_detox_nights: 3,
+});
+
+assert.strictEqual(reachHouseFor(manorClient), "manor");
+assert.strictEqual(
+  reachHouseFor({ ...manorClient, house: "manor", room_id: "lodge-protea" }),
+  null,
+  "Confirmed Manor and a Lodge room must not send",
+);
+assert.strictEqual(
+  reachHouseFor({ ...manorClient, house: "", house_preference: "manor", preferred_room_id: "lodge-protea" }),
+  null,
+  "Manor preference and a Lodge room must not send",
+);
+assert.strictEqual(reachHouseFor({ ...manorClient, house: "", house_preference: "either", preferred_room_id: "" }), null);
+assert.strictEqual(reachHouseFor({ ...manorClient, house: "lodge", house_preference: "manor", room_id: "" }), "lodge");
+
+const manorPreview = buildAwaitingAdmission(manorClient, admissionsActor, new Date("2026-09-25T09:00:00.000Z"), []);
+assert(manorPreview.ok, "Manor preview builds");
+if (manorPreview.ok) {
+  assert.strictEqual(manorPreview.body.v, 2);
+  assert.strictEqual(manorPreview.body.intent, "awaiting_admission");
+  assert.strictEqual(manorPreview.body.house, "weltevreden_manor");
+  assert.strictEqual(manorPreview.body.phase, "2");
+  assert.notStrictEqual(manorPreview.body.house, "liberty_lodge");
+  assert.strictEqual(manorPreview.body.admissionKind, "program");
+  assert.strictEqual(manorPreview.body.detoxFirst, true);
+  assert.strictEqual(manorPreview.body.expectedDetoxNights, 3);
+  assert.strictEqual(manorPreview.body.detoxIntent, "detox_first");
+  assert.strictEqual(typeof manorPreview.body.documentsComplete, "boolean");
+  assert.strictEqual(manorPreview.body.documentsComplete, false);
+  assert.strictEqual(manorPreview.body.reachClientId, manorClient.id);
+  assert.strictEqual(manorPreview.body.withinClientId, `reach-${manorClient.id}`);
+  assert.strictEqual(manorPreview.body.room, "Beech");
+  assert.strictEqual(manorPreview.body.fundingType, "medical_aid");
+  assert.strictEqual(manorPreview.body.admissionDate, "2026-10-02");
+  assert.strictEqual(manorPreview.body.referrer?.name, "Dr Nkosi");
+  assert.strictEqual(manorPreview.body.referrer?.organisation, "City Clinic");
+  assert.strictEqual(manorPreview.body.nextOfKin?.name, "Lerato Row");
+  assert.strictEqual(manorPreview.body.counsellor, "Lelethu Therapist");
+  assert.strictEqual(manorPreview.body.sentBy.reachUserId, admissionsActor.id);
+  assert.strictEqual(manorPreview.body.sentBy.email, admissionsActor.email);
+  assert(manorPreview.missing.some((item) => item.label === "Form 7"));
+  assert(manorPreview.missing.some((item) => item.kind === "manor_coc"));
+  assert(!manorPreview.missing.some((item) => item.kind === "coc" || item.kind === "visitors"));
+}
+
+const lodgeClient = qaPerson({
+  id: "p_qa_within_lodge",
+  first_name: "Lodge",
+  last_name: "Only",
+  house_preference: "lodge",
+  preferred_room_id: "lodge-protea",
+  manor_phase: "1",
+  admission_kind: "detox_containment",
+});
+const lodgePreview = buildAwaitingAdmission(lodgeClient, executiveActorForSend, new Date("2026-09-25T09:00:00.000Z"), []);
+assert(lodgePreview.ok, "Lodge preview builds");
+if (lodgePreview.ok) {
+  assert.strictEqual(lodgePreview.body.house, "liberty_lodge");
+  assert.strictEqual(lodgePreview.body.phase, "3", "Lodge is phase 3 even if a Manor phase was stored");
+  assert.strictEqual(lodgePreview.body.admissionKind, "detox_containment");
+  assert.strictEqual(lodgePreview.body.detoxFirst, false);
+  assert.strictEqual(lodgePreview.body.expectedDetoxNights, 0);
+  assert.strictEqual(lodgePreview.body.detoxIntent, "short_stay");
+  assert(lodgePreview.missing.some((item) => item.kind === "coc"));
+  assert(!lodgePreview.missing.some((item) => item.kind === "manor_coc"));
+}
+
+const brokenDetox = buildAwaitingAdmission(
+  { ...manorClient, admission_kind: "detox_containment", detox_first: 1, expected_detox_nights: 2 },
+  admissionsActor,
+  new Date("2026-09-25T09:00:00.000Z"),
+  [],
+);
+assert.strictEqual(brokenDetox.ok, false);
+
+const handoffSecretForTest = "qa-within-handoff-secret";
+const qaIds = [manorClient.id, lodgeClient.id];
+
+function addWithinDoc(personId: string, kind: string, forWithin = 1) {
+  getDb()
+    .prepare(
+      `INSERT INTO person_documents (
+        id, person_id, kind, title, filename, stored_name, mime_type, size_bytes, for_within, uploaded_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'application/pdf', 12, ?, 'user_admissions', '2026-09-25T08:00:00.000Z')`,
+    )
+    .run(`doc-${personId}-${kind}-${forWithin}`, personId, kind, kind, `${kind}.pdf`, `${kind}.pdf`, forWithin);
+}
+
+function cleanupWithinQa() {
+  for (const id of qaIds) {
+    getDb().prepare(`DELETE FROM person_documents WHERE person_id = ?`).run(id);
+    getDb().prepare(`DELETE FROM audit_events WHERE entity_id = ?`).run(id);
+    getDb().prepare(`DELETE FROM people WHERE id = ?`).run(id);
+  }
+}
+
+cleanupWithinQa();
+insertPerson(manorClient);
+insertPerson(lodgeClient);
+
+for (const kind of requiredDocumentsFor("manor")) addWithinDoc(manorClient.id, kind.kind);
+addWithinDoc(manorClient.id, "coc");
+addWithinDoc(manorClient.id, "form7", 0);
+for (let index = 0; index < 41; index += 1) addWithinDoc(manorClient.id, `attachment_${index}`);
+
+const complete = buildAwaitingAdmission(
+  { ...manorClient, arp_signed: 0, arf_signed: 0 },
+  admissionsActor,
+  new Date("2026-09-25T09:00:00.000Z"),
+);
+assert(complete.ok && complete.documentsComplete, "Uploaded required documents mark the pack complete");
+if (complete.ok) {
+  assert.strictEqual(complete.body.documentsComplete, true);
+  assert.ok(complete.body.documents);
+  assert.strictEqual(complete.body.documents.length, 40);
+  assert.ok(!complete.body.documents.some((doc) => doc.kind === "coc"), "Lodge-only documents stay off a Manor send");
+  assert.ok(complete.body.documents.every((doc) => typeof doc.signed === "boolean"));
+}
+assert.strictEqual(missingRequiredDocuments({ ...manorClient, arp_signed: 1 }, "manor").some((item) => item.kind === "nok"), false);
+
+type Captured = { authorization: string; body: string };
+const captured: Captured[] = [];
+const responses: { status: number; json: Record<string, unknown> }[] = [
+  {
+    status: 200,
+    json: {
+      ok: true,
+      created: true,
+      updated: false,
+      id: "wait-qa-manor",
+      reachClientId: manorClient.id,
+      withinClientId: `reach-${manorClient.id}`,
+      status: "awaiting_admission",
+      house: "weltevreden_manor",
+      documentsComplete: true,
+    },
+  },
+  {
+    status: 200,
+    json: {
+      ok: true,
+      created: false,
+      updated: true,
+      id: "wait-qa-manor",
+      reachClientId: manorClient.id,
+      withinClientId: `reach-${manorClient.id}`,
+      status: "awaiting_admission",
+      house: "weltevreden_manor",
+      documentsComplete: true,
+    },
+  },
+  {
+    status: 409,
+    json: {
+      ok: false,
+      error: "This Reach client is already admitted in Within. The waiting record was not changed.",
+      code: "already_admitted",
+      clientId: `reach-${manorClient.id}`,
+      waitingId: "wait-qa-manor",
+    },
+  },
+  {
+    status: 200,
+    json: {
+      ok: true,
+      created: true,
+      updated: false,
+      id: "wait-qa-lodge",
+      reachClientId: lodgeClient.id,
+      withinClientId: `reach-${lodgeClient.id}`,
+      status: "awaiting_admission",
+      house: "liberty_lodge",
+      phase: "3",
+      documentsComplete: false,
+    },
+  },
+];
+
+const mock = http.createServer(async (req, res) => {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  captured.push({
+    authorization: req.headers.authorization || "",
+    body: Buffer.concat(chunks).toString("utf8"),
+  });
+  const next = responses.shift() ?? { status: 500, json: { ok: false, code: "receive_failed" } };
+  res.writeHead(next.status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(next.json));
+});
+
+async function runMockedWithinSend() {
+await new Promise<void>((resolve) => mock.listen(0, "127.0.0.1", resolve));
+const address = mock.address();
+const port = typeof address === "object" && address ? address.port : 0;
+const mockBase = `http://127.0.0.1:${port}`;
+
+const originalLog = console.log;
+const originalInfo = console.info;
+const originalWarn = console.warn;
+const originalError = console.error;
+const leaked: string[] = [];
+function tap(method: (...args: unknown[]) => void) {
+  return (...args: unknown[]) => {
+    const line = args.map((arg) => (typeof arg === "string" ? arg : "")).join(" ");
+    if (line.includes(handoffSecretForTest) || line.includes("Cipher") || line.includes("cipher.row")) leaked.push(line);
+    method(...args);
+  };
+}
+console.log = tap(originalLog) as typeof console.log;
+console.info = tap(originalInfo) as typeof console.info;
+console.warn = tap(originalWarn) as typeof console.warn;
+console.error = tap(originalError) as typeof console.error;
+
+try {
+  const refusedRole = await sendPersonToWithin(manorClient.id, therapistActor, {
+    baseUrl: mockBase,
+    secret: handoffSecretForTest,
+  });
+  assert.strictEqual(refusedRole.ok, false);
+  assert.strictEqual(captured.length, 0, "A therapist send must not call Within");
+
+  const unknown = qaPerson({
+    id: "p_qa_within_unknown",
+    first_name: "No",
+    last_name: "House",
+    house_preference: "either",
+  });
+  qaIds.push(unknown.id);
+  insertPerson(unknown);
+  const refusedHouse = await sendPersonToWithin(unknown.id, admissionsActor, {
+    baseUrl: mockBase,
+    secret: handoffSecretForTest,
+  });
+  assert.strictEqual(refusedHouse.ok, false);
+  assert.strictEqual(captured.length, 0, "Unknown house must not call Within");
+
+  const sentAt = new Date("2026-09-25T09:30:00.000Z");
+  const first = await sendPersonToWithin(manorClient.id, admissionsActor, {
+    baseUrl: mockBase,
+    secret: handoffSecretForTest,
+    now: sentAt,
+  });
+  assert(first.ok && first.outcome === "sent", "First commercial send is created");
+  if (first.ok) {
+    assert.strictEqual(first.person.within_waiting_status, "awaiting_admission");
+    assert.strictEqual(first.person.within_waiting_id, "wait-qa-manor");
+    assert.strictEqual(first.person.within_sent_by_name, admissionsActor.name);
+    assert.strictEqual(sentStatusLine(first.person).includes("awaiting admission"), true);
+    assert.strictEqual(sentStatusLine(first.person).includes(admissionsActor.name), true);
+  }
+  const firstBody = JSON.parse(captured[0].body) as {
+    reachClientId: string;
+    documentsComplete: boolean;
+    house: string;
+    phase: string;
+    documents: { kind: string }[];
+  };
+  assert.ok(captured[0].authorization === `Bearer ${handoffSecretForTest}`, "Authorization must be the handoff bearer");
+  assert.ok(!captured[0].body.includes(handoffSecretForTest), "Payload must not carry the handoff secret");
+  assert.strictEqual(firstBody.reachClientId, manorClient.id);
+  assert.strictEqual(typeof firstBody.documentsComplete, "boolean");
+  assert.strictEqual(firstBody.house, "weltevreden_manor");
+  assert.strictEqual(firstBody.phase, "2");
+  assert.ok(!firstBody.documents.some((doc) => doc.kind === "coc"));
+
+  const second = await sendPersonToWithin(manorClient.id, admissionsActor, {
+    baseUrl: mockBase,
+    secret: handoffSecretForTest,
+    now: new Date("2026-09-25T10:00:00.000Z"),
+  });
+  assert(second.ok && second.outcome === "updated", "Resend updates the same waiting row");
+  const secondBody = JSON.parse(captured[1].body) as { reachClientId: string };
+  assert.strictEqual(secondBody.reachClientId, firstBody.reachClientId);
+  if (second.ok) assert.strictEqual(second.person.within_waiting_id, "wait-qa-manor");
+
+  const admitted = await sendPersonToWithin(manorClient.id, admissionsActor, {
+    baseUrl: mockBase,
+    secret: handoffSecretForTest,
+  });
+  assert(admitted.ok && admitted.outcome === "already_admitted");
+  if (admitted.ok) {
+    assert.strictEqual(admitted.person.within_waiting_status, "already_admitted");
+    assert.strictEqual(sentStatusLine(admitted.person), "Already admitted in Within");
+  }
+
+  const lodgeSend = await sendPersonToWithin(lodgeClient.id, executiveActorForSend, {
+    baseUrl: mockBase,
+    secret: handoffSecretForTest,
+    now: new Date("2026-09-25T11:00:00.000Z"),
+  });
+  assert(lodgeSend.ok && lodgeSend.outcome === "sent");
+  const lodgeBody = JSON.parse(captured[3].body) as { house: string; phase: string; documentsComplete: boolean };
+  assert.strictEqual(lodgeBody.house, "liberty_lodge");
+  assert.strictEqual(lodgeBody.phase, "3");
+  assert.strictEqual(lodgeBody.documentsComplete, false);
+
+  const events = listAudit(manorClient.id);
+  assert(events.some((event) => event.action === "within_send"));
+  for (const event of events) {
+    assert.ok(!event.summary.includes("Cipher"), "Timeline summary must not include the client name");
+    assert.ok(!event.summary.includes(handoffSecretForTest), "Timeline must not include the handoff secret");
+    assert.ok(!event.before_json.includes(handoffSecretForTest));
+    assert.ok(!event.after_json.includes(handoffSecretForTest));
+  }
+  assert.strictEqual(leaked.length, 0, "Logs must not include the handoff secret or client identity");
+} finally {
+  console.log = originalLog;
+  console.info = originalInfo;
+  console.warn = originalWarn;
+  console.error = originalError;
+  await new Promise<void>((resolve) => mock.close(() => resolve()));
+  cleanupWithinQa();
+}
+}
+
+runMockedWithinSend()
+  .then(() => {
+    console.log("QA assertions passed.");
+  })
+  .catch((error: unknown) => {
+    console.error(error);
+    process.exit(1);
+  });

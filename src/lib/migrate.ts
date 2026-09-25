@@ -153,6 +153,26 @@ export function migrate(db: Database.Database) {
       name: "expected_detox_nights",
       ddl: `ALTER TABLE people ADD COLUMN expected_detox_nights INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      name: "within_waiting_status",
+      ddl: `ALTER TABLE people ADD COLUMN within_waiting_status TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      name: "within_sent_at",
+      ddl: `ALTER TABLE people ADD COLUMN within_sent_at TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      name: "within_sent_by_name",
+      ddl: `ALTER TABLE people ADD COLUMN within_sent_by_name TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      name: "within_sent_by_user_id",
+      ddl: `ALTER TABLE people ADD COLUMN within_sent_by_user_id TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      name: "within_waiting_id",
+      ddl: `ALTER TABLE people ADD COLUMN within_waiting_id TEXT NOT NULL DEFAULT ''`,
+    },
     { name: "admission_date", ddl: `ALTER TABLE people ADD COLUMN admission_date TEXT NOT NULL DEFAULT ''` },
     {
       name: "planned_discharge_date",

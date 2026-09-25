@@ -56,6 +56,11 @@ export const COMMERCIAL_FIELDS = [
   "admission_kind",
   "detox_first",
   "expected_detox_nights",
+  "within_waiting_status",
+  "within_sent_at",
+  "within_sent_by_name",
+  "within_sent_by_user_id",
+  "within_waiting_id",
   "admitted_at",
   "archived_at",
 ] as const;

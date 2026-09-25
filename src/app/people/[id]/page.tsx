@@ -9,6 +9,7 @@ import { DocumentPanel } from "@/components/DocumentPanel";
 import { HouseAssign } from "@/components/HouseAssign";
 import { LeadSourceForm } from "@/components/LeadSourceForm";
 import { PersonEditor } from "@/components/PersonEditor";
+import { SendToWithin } from "@/components/SendToWithin";
 import { StageMove } from "@/components/StageMove";
 import { TransferExtensionForm } from "@/components/TransferExtensionForm";
 import { UndoBar } from "@/components/UndoBar";
@@ -26,7 +27,7 @@ export default async function PersonPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ undo?: string; notice?: string; error?: string }>;
+  searchParams: Promise<{ undo?: string; notice?: string; error?: string; confirm?: string }>;
 }) {
   const user = await requireStaff();
   const { id } = await params;
@@ -78,11 +79,23 @@ export default async function PersonPage({
             </p>
           ) : null}
         </div>
-        {person.within_handoff_status !== "none" ? (
-          <span className="rounded-full bg-sand px-3 py-1 text-xs uppercase tracking-wider">
-            Within admission pack
-          </span>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {person.within_handoff_status !== "none" ? (
+            <span className="rounded-full bg-sand px-3 py-1 text-xs uppercase tracking-wider">
+              Within admission pack
+            </span>
+          ) : null}
+          {person.within_waiting_status === "awaiting_admission" ? (
+            <span className="rounded-full bg-sage px-3 py-1 text-xs uppercase tracking-wider text-paper">
+              Awaiting admission
+            </span>
+          ) : null}
+          {person.within_waiting_status === "already_admitted" ? (
+            <span className="rounded-full bg-terracotta px-3 py-1 text-xs uppercase tracking-wider text-paper">
+              Already admitted in Within
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -95,6 +108,9 @@ export default async function PersonPage({
           <StageMove person={person} />
           <ChecklistForm person={person} />
           <TransferExtensionForm person={person} />
+          {person.stage === "admit" || person.within_waiting_status ? (
+            <SendToWithin person={person} user={user} confirm={query.confirm === "within"} />
+          ) : null}
           {person.stage === "resident" ? <AdmissionPack person={person} /> : null}
           {person.stage !== "resident" ? <HouseAssign person={person} /> : null}
           {person.stage === "admit" ? <AdmitConfirm person={person} staff={staff} /> : null}

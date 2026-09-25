@@ -46,6 +46,12 @@ export function PersonCard({ person, highlight }: { person: Person; highlight?: 
       {person.expected_arrival ? (
         <p className="mt-2 text-xs uppercase tracking-wider text-muted">Arrival {person.expected_arrival}</p>
       ) : null}
+      {person.within_waiting_status === "awaiting_admission" ? (
+        <p className="mt-2 text-xs uppercase tracking-wider text-sage-deep">Awaiting admission in Within</p>
+      ) : null}
+      {person.within_waiting_status === "already_admitted" ? (
+        <p className="mt-2 text-xs uppercase tracking-wider text-terracotta">Already admitted in Within</p>
+      ) : null}
     </Link>
   );
 }

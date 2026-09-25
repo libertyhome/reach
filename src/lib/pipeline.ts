@@ -78,6 +78,11 @@ function blankPerson(partial: Partial<Person> & Pick<Person, "first_name" | "las
     admission_kind: partial.admission_kind ?? "",
     detox_first: partial.detox_first ?? 0,
     expected_detox_nights: partial.expected_detox_nights ?? 0,
+    within_waiting_status: partial.within_waiting_status ?? "",
+    within_sent_at: partial.within_sent_at ?? "",
+    within_sent_by_name: partial.within_sent_by_name ?? "",
+    within_sent_by_user_id: partial.within_sent_by_user_id ?? "",
+    within_waiting_id: partial.within_waiting_id ?? "",
     admitted_at: partial.admitted_at ?? "",
     archived_at: partial.archived_at ?? "",
     created_at: partial.created_at ?? now,
@@ -126,7 +131,7 @@ export function applyPersonPatch(
   id: string,
   patch: Partial<Person>,
   actor: User,
-  action: "field_edit" | "lead_source" | "stage_move" | "house_assignment" | "archive" | "admit",
+  action: "field_edit" | "lead_source" | "stage_move" | "house_assignment" | "archive" | "admit" | "within_send",
   summary: string,
 ) {
   const current = getPerson(id);

@@ -13,6 +13,7 @@ const PERSON_COLUMNS = `
   addon_medical_float, addon_nursing_medical_admission, addon_psych_admission, addon_overnight_supervision,
   transfer_extension_status, transfer_extension_notes,
   within_handoff_status, within_client_id, admission_kind, detox_first, expected_detox_nights,
+  within_waiting_status, within_sent_at, within_sent_by_name, within_sent_by_user_id, within_waiting_id,
   admitted_at, archived_at, created_at, updated_at
 `;
 
@@ -46,6 +47,11 @@ function withDefaults(person: Person): Person {
     admission_kind: person.admission_kind ?? "",
     detox_first: person.detox_first === 1 ? 1 : 0,
     expected_detox_nights: normalizeDetoxNights(person.expected_detox_nights),
+    within_waiting_status: person.within_waiting_status ?? "",
+    within_sent_at: person.within_sent_at ?? "",
+    within_sent_by_name: person.within_sent_by_name ?? "",
+    within_sent_by_user_id: person.within_sent_by_user_id ?? "",
+    within_waiting_id: person.within_waiting_id ?? "",
   };
 }
 
@@ -119,6 +125,7 @@ export function insertPerson(person: Person) {
         @addon_medical_float, @addon_nursing_medical_admission, @addon_psych_admission, @addon_overnight_supervision,
         @transfer_extension_status, @transfer_extension_notes,
         @within_handoff_status, @within_client_id, @admission_kind, @detox_first, @expected_detox_nights,
+        @within_waiting_status, @within_sent_at, @within_sent_by_name, @within_sent_by_user_id, @within_waiting_id,
         @admitted_at, @archived_at, @created_at, @updated_at
       )`,
     )
@@ -182,6 +189,11 @@ export function replacePerson(person: Person) {
       admission_kind = @admission_kind,
       detox_first = @detox_first,
       expected_detox_nights = @expected_detox_nights,
+      within_waiting_status = @within_waiting_status,
+      within_sent_at = @within_sent_at,
+      within_sent_by_name = @within_sent_by_name,
+      within_sent_by_user_id = @within_sent_by_user_id,
+      within_waiting_id = @within_waiting_id,
       admitted_at = @admitted_at,
       archived_at = @archived_at,
       updated_at = @updated_at

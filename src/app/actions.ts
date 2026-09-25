@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { undoEvent } from "@/lib/audit";
 import { getCurrentUser, login, logout } from "@/lib/auth";
+import { sendPersonToWithin } from "@/lib/within-send";
 import { deletePersonDocument, savePersonDocument } from "@/lib/documents";
 import { getPerson } from "@/lib/people";
 import {
@@ -345,6 +346,25 @@ export async function deleteDocumentAction(formData: FormData) {
     redirect(`/people/${id}`);
   }
   afterChange(id, result.event.id);
+}
+
+export async function sendToWithinAction(formData: FormData) {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  const id = formString(formData, "id");
+  const result = await sendPersonToWithin(id, user);
+  revalidatePath(`/people/${id}`);
+  revalidatePath("/admit");
+  if (!result.ok) {
+    redirect(`/people/${id}?error=${encodeURIComponent(result.error)}`);
+  }
+  const notice =
+    result.outcome === "already_admitted"
+      ? "Already admitted in Within"
+      : result.outcome === "updated"
+        ? "Updated in Within. Still awaiting admission."
+        : "Sent to Within, awaiting admission.";
+  redirect(`/people/${id}?notice=${encodeURIComponent(notice)}`);
 }
 
 export async function undoAction(formData: FormData) {

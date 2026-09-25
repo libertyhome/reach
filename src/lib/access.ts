@@ -12,3 +12,11 @@ export function canViewExecutive(user: Pick<User, "role">) {
 export function canViewCreditors(user: Pick<User, "role">) {
   return user.role === "executive" || user.role === "finance";
 }
+
+/**
+ * Commercial pass-off into Within's waiting list.
+ * Reach has no separate admin role; Executive is the admin desk.
+ */
+export function canSendToWithin(user: Pick<User, "role">) {
+  return user.role === "admissions" || user.role === "executive";
+}
