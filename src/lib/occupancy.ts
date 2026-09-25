@@ -1,4 +1,4 @@
-import { HOUSE_LABEL, LEAD_SOURCE_LABEL, personDisplayName } from "./labels";
+import { HOUSE_LABEL, leadSourceLabel, personDisplayName } from "./labels";
 import { getRoom } from "./rooms";
 import { findUserById } from "./users";
 import {
@@ -45,7 +45,7 @@ export function occupancyParityRow(person: Person) {
 
   return {
     name: personDisplayName(person),
-    lead_source: LEAD_SOURCE_LABEL[person.lead_source],
+    lead_source: leadSourceLabel(person.lead_source),
     method_of_contact: contact,
     referrer: person.referrer_name,
     referrer_contact_person: person.referrer_contact_person,

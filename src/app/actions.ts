@@ -16,9 +16,10 @@ import {
   saveRoomPreference,
   updateLeadSource,
   applyPersonPatch,
+  parseAddonDays,
   parseDetoxDays,
 } from "@/lib/pipeline";
-import { PIPELINE_STAGES } from "@/lib/labels";
+import { PIPELINE_STAGES, isCurrentLeadSource, isLeadSource, isNotConvertedReason } from "@/lib/labels";
 import {
   COMMERCIAL_ADDONS,
   COMMERCIAL_CHECKLIST,
@@ -27,14 +28,12 @@ import {
   DOCUMENT_KINDS,
   FUNDING_TYPES,
   HOUSES,
-  LEAD_SOURCES,
   TRANSFER_EXTENSION_STATUSES,
   type ContactMethod,
   type Currency,
   type DocumentKind,
   type FundingType,
   type House,
-  type LeadSource,
   type RoomPrivacy,
   type Stage,
   type TransferExtensionStatus,
@@ -82,17 +81,23 @@ export async function logoutAction() {
 export async function createEnquiryAction(formData: FormData) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  const source = formString(formData, "lead_source") as LeadSource;
+  const source = formString(formData, "lead_source");
+  if (!isCurrentLeadSource(source)) {
+    redirect(`/enquiries/new?error=${encodeURIComponent("Choose a lead source.")}`);
+  }
   const contact = formString(formData, "contact_method") as ContactMethod;
   const { person, event } = createEnquiry(
     {
       first_name: formString(formData, "first_name"),
       last_name: formString(formData, "last_name"),
       preferred_name: formString(formData, "preferred_name"),
+      caller_name: formString(formData, "caller_name"),
+      resident_name: formString(formData, "resident_name"),
       email: formString(formData, "email"),
       phone: formString(formData, "phone"),
-      lead_source: LEAD_SOURCES.includes(source) ? source : "other",
+      lead_source: source,
       lead_source_note: formString(formData, "lead_source_note"),
+      lead_source_who: formString(formData, "lead_source_who"),
       contact_method: CONTACT_METHODS.includes(contact) ? contact : "phone",
       assigned_to_user_id: formString(formData, "assigned_to_user_id") || user.id,
       referral_owner_user_id: formString(formData, "referral_owner_user_id") || user.id,
@@ -117,6 +122,17 @@ export async function updateFieldsAction(formData: FormData) {
   const addonPatch = Object.fromEntries(
     COMMERCIAL_ADDONS.map((item) => [item.key, formData.get(item.key) === "1" ? 1 : 0]),
   );
+  const nursingOn = formData.get("addon_nursing_medical_admission") === "1";
+  const detoxOvernightOn = formData.get("addon_detox_overnight") === "1";
+  const nursingDays = nursingOn ? parseAddonDays(formString(formData, "addon_nursing_days")) : 0;
+  const detoxOvernightDays = detoxOvernightOn ? parseAddonDays(formString(formData, "addon_detox_overnight_days")) : 0;
+  if (nursingDays == null || detoxOvernightDays == null) {
+    redirect(`/people/${id}?error=${encodeURIComponent("Choose a number of days from 1 to 14, or leave days unset.")}`);
+  }
+  const reason = formString(formData, "not_converted_reason");
+  if (reason && !isNotConvertedReason(reason)) {
+    redirect(`/people/${id}?error=${encodeURIComponent("Choose a reason for not converting from the list.")}`);
+  }
   const detoxOn = formData.get("detox_first") === "1";
   let detoxDays = 0;
   if (detoxOn) {
@@ -132,6 +148,8 @@ export async function updateFieldsAction(formData: FormData) {
       first_name: formString(formData, "first_name"),
       last_name: formString(formData, "last_name"),
       preferred_name: formString(formData, "preferred_name"),
+      caller_name: formString(formData, "caller_name"),
+      resident_name: formString(formData, "resident_name"),
       email: formString(formData, "email"),
       phone: formString(formData, "phone"),
       contact_method: CONTACT_METHODS.includes(contact) ? contact : "",
@@ -143,6 +161,7 @@ export async function updateFieldsAction(formData: FormData) {
       referrer_phone: formString(formData, "referrer_phone"),
       next_of_kin_name: formString(formData, "next_of_kin_name"),
       next_of_kin_phone: formString(formData, "next_of_kin_phone"),
+      arp_email: formString(formData, "arp_email"),
       funding_type: FUNDING_TYPES.includes(funding) ? funding : "private",
       funding_notes: formString(formData, "funding_notes"),
       currency: CURRENCIES.includes(currency) ? currency : "ZAR",
@@ -151,9 +170,15 @@ export async function updateFieldsAction(formData: FormData) {
       planned_discharge_date: formString(formData, "planned_discharge_date"),
       house_preference: pref === "manor" || pref === "lodge" || pref === "either" ? pref : "",
       commercial_notes: formString(formData, "commercial_notes"),
+      not_converted_reason: isNotConvertedReason(reason) ? reason : "",
       assessment_details: formString(formData, "assessment_details"),
       assessment_notes: formString(formData, "assessment_notes"),
       ...addonPatch,
+      addon_nursing_medical_admission: nursingOn ? 1 : 0,
+      addon_nursing_days: nursingDays,
+      addon_detox_overnight: detoxOvernightOn ? 1 : 0,
+      addon_detox_overnight_days: detoxOvernightDays,
+      ...(detoxOvernightOn ? {} : { addon_overnight_supervision: 0 }),
       detox_first: detoxOn ? 1 : 0,
       expected_detox_nights: detoxDays,
     },
@@ -169,12 +194,16 @@ export async function updateLeadSourceAction(formData: FormData) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const id = formString(formData, "id");
-  const source = formString(formData, "lead_source") as LeadSource;
+  const source = formString(formData, "lead_source");
+  if (!isLeadSource(source)) {
+    redirect(`/people/${id}?error=${encodeURIComponent("Choose a lead source.")}`);
+  }
   const result = updateLeadSource(
     id,
-    LEAD_SOURCES.includes(source) ? source : "other",
+    source,
     formString(formData, "lead_source_note"),
     user,
+    formString(formData, "lead_source_who"),
   );
   if (!result.ok) redirect(`/people/${id}?error=${encodeURIComponent(result.error)}`);
   afterChange(id, result.event.id);
@@ -191,7 +220,7 @@ export async function updateChecklistAction(formData: FormData) {
     checklistPatch,
     user,
     "field_edit",
-    `Updated commercial checklist — ${actorLabel(user.name)}`,
+    `Updated admissions checklist — ${actorLabel(user.name)}`,
   );
   if (!result.ok) redirect(`/people/${id}?error=${encodeURIComponent(result.error)}`);
   afterChange(id, result.event.id);
@@ -265,7 +294,12 @@ export async function archiveAction(formData: FormData) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const id = formString(formData, "id");
-  const result = archivePerson(id, user);
+  const person = getPerson(id);
+  const reason = formString(formData, "not_converted_reason");
+  if (person && person.stage !== "resident" && !isNotConvertedReason(reason)) {
+    redirect(`/people/${id}?error=${encodeURIComponent("Choose a reason for not converting.")}`);
+  }
+  const result = archivePerson(id, user, reason);
   if (!result.ok) redirect(`/people/${id}?error=${encodeURIComponent(result.error)}`);
   afterChange(id, result.event.id);
 }

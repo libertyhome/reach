@@ -284,7 +284,7 @@ export function AccountsBoard({
                 </dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wider text-muted">ARP (billing NOK)</dt>
+                <dt className="text-xs uppercase tracking-wider text-muted">ARP</dt>
                 <dd>
                   {row.arp_name || "—"}
                   {row.arp_signed ? " · signed" : ""}

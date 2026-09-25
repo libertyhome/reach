@@ -10,6 +10,8 @@ import {
 import { canSendToWithin, canViewCreditors, canViewExecutive } from "../src/lib/access";
 import { clearAccountingFixtures, createCreditor, pullAccounting, readProfitAndLossStrip } from "../src/lib/creditors";
 import { getDb } from "../src/lib/db";
+import { LEAD_SOURCE_LABEL, NOT_CONVERTED_REASON_LABEL } from "../src/lib/labels";
+import { mapOvernightSupervisionAddon } from "../src/lib/migrate";
 import {
   buildExecutiveAnalytics,
   buildOccupancySnapshot,
@@ -27,7 +29,14 @@ import { seed } from "../src/lib/seed";
 import { authenticate, findUserById, listUsers } from "../src/lib/users";
 import { listAudit, undoEvent } from "../src/lib/audit";
 import { sessionTokenLooksValid } from "../src/lib/session";
-import { COMMERCIAL_CHECKLIST, type Person } from "../src/lib/types";
+import {
+  COMMERCIAL_ADDONS,
+  COMMERCIAL_CHECKLIST,
+  LEAD_SOURCES,
+  LEAD_SOURCES_WITH_WHO,
+  NOT_CONVERTED_REASONS,
+  type Person,
+} from "../src/lib/types";
 import {
   buildAwaitingAdmission,
   missingRequiredDocuments,
@@ -197,21 +206,22 @@ const checklistEdit = applyPersonPatch(
   { deposit_received: 1, arp_signed: 1 },
   accounts,
   "field_edit",
-  `Updated commercial checklist — ${accounts.name.split(/\s+/)[0]}`,
+  `Updated admissions checklist — ${accounts.name.split(/\s+/)[0]}`,
 );
 assert(checklistEdit.ok);
 const history = listAudit(priya.id, 5);
 assert(
   history.some((event) => event.summary.includes("Pieter") || findUserById(event.actor_id)?.name.includes("Pieter")),
-  "History must retain actor for commercial checklist edits",
+  "History must retain actor for admissions checklist edits",
 );
 assert(
   COMMERCIAL_CHECKLIST.some((item) => item.key === "arf_signed"),
-  "ARF signed must be on commercial checklist",
+  "ARF signed stays on the admissions checklist",
 );
-assert(
-  COMMERCIAL_CHECKLIST.some((item) => item.key === "arp_signed"),
-  "ARP signed must be on commercial checklist",
+assert.strictEqual(
+  (COMMERCIAL_CHECKLIST as readonly { key: string }[]).some((item) => item.key === "arp_signed"),
+  false,
+  "ARP is the person, not a second checklist form beside ARF",
 );
 undoEvent(checklistEdit.event.id, accounts.id);
 
@@ -372,8 +382,17 @@ for (const needed of [
   "room_privacy",
   "addon_medical_float",
   "addon_nursing_medical_admission",
+  "addon_nursing_days",
   "addon_psych_admission",
   "addon_overnight_supervision",
+  "addon_medical_visa",
+  "addon_detox_overnight",
+  "addon_detox_overnight_days",
+  "caller_name",
+  "resident_name",
+  "lead_source_who",
+  "arp_email",
+  "not_converted_reason",
   "transfer_extension_status",
   "transfer_extension_notes",
   "contact_method",
@@ -398,6 +417,80 @@ for (const needed of [
 const tables = (
   getDb().prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[]
 ).map((row) => row.name);
+assert.strictEqual(findPersonByName("Priya", "Naidoo")?.lead_source, "website", "Old enquiry lead source is kept");
+assert.strictEqual(
+  findPersonByName("Priya", "Naidoo")?.commercial_notes,
+  "Web form. Wants a call this week.",
+  "Old enquiry notes are kept",
+);
+assert.strictEqual(LEAD_SOURCE_LABEL.website, "Website");
+assert.strictEqual(LEAD_SOURCE_LABEL.recovery_com, "Recovery.com");
+assert.strictEqual(LEAD_SOURCE_LABEL.google_adwords, "Google ad words");
+assert.deepStrictEqual([...LEAD_SOURCES_WITH_WHO], ["recovery_coach", "referrer", "personal_contact"]);
+for (const label of [
+  "Recovery.com",
+  "Returning Client",
+  "Ex-resident",
+  "Google.com",
+  "Google.nl",
+  "Google.be",
+  "Meta ads",
+  "Google ad words",
+  "Recovery Coach",
+  "Referrer",
+  "Personal Contact",
+]) {
+  assert(Object.values(LEAD_SOURCE_LABEL).includes(label), `Lead source label missing: ${label}`);
+}
+assert.strictEqual(NOT_CONVERTED_REASONS.length, 7);
+assert.strictEqual(NOT_CONVERTED_REASON_LABEL.affordability_above_budget, "Affordability issue – Above budget");
+assert.strictEqual(NOT_CONVERTED_REASON_LABEL.affordability_copayment, "Affordability – Co-payment");
+assert.strictEqual(NOT_CONVERTED_REASON_LABEL.unsuitability_adolescent, "Unsuitability – Adolescent");
+assert(
+  COMMERCIAL_ADDONS.some((item) => item.label === "Medical Visa"),
+  "Medical Visa is a commercial add-on",
+);
+assert.strictEqual(
+  (COMMERCIAL_ADDONS as readonly { label: string }[]).some((item) => item.label === "Overnight supervision"),
+  false,
+  "Overnight supervision is no longer a commercial add-on label",
+);
+assert((LEAD_SOURCES as readonly string[]).includes("recovery_com"));
+
+const overnightId = "p_qa_overnight_map";
+getDb().prepare(`DELETE FROM people WHERE id = ?`).run(overnightId);
+insertPerson(
+  qaPerson({
+    id: overnightId,
+    first_name: "Overnight",
+    last_name: "Map",
+    stage: "enquiry",
+    lead_source: "gp",
+    commercial_notes: "Keep this note",
+    addon_overnight_supervision: 1,
+  }),
+);
+getDb()
+  .prepare(
+    `UPDATE people
+     SET addon_overnight_supervision = 1,
+         addon_detox_overnight = 0,
+         addon_detox_overnight_days = 0,
+         lead_source = 'gp',
+         commercial_notes = 'Keep this note'
+     WHERE id = ?`,
+  )
+  .run(overnightId);
+mapOvernightSupervisionAddon(getDb());
+const mappedOvernight = findPersonByName("Overnight", "Map");
+assert(mappedOvernight, "Overnight supervision row maps");
+assert.strictEqual(mappedOvernight.addon_detox_overnight, 1, "Old overnight supervision maps to detox/overnight");
+assert.strictEqual(mappedOvernight.addon_overnight_supervision, 1, "Old overnight flag is kept");
+assert.strictEqual(mappedOvernight.addon_detox_overnight_days, 0, "Mapped rows do not invent a day count");
+assert.strictEqual(mappedOvernight.lead_source, "gp", "Mapping does not rewrite lead source");
+assert.strictEqual(mappedOvernight.commercial_notes, "Keep this note", "Mapping does not rewrite notes");
+getDb().prepare(`DELETE FROM people WHERE id = ?`).run(overnightId);
+
 assert(tables.includes("person_documents"), "person_documents table required");
 assert(tables.includes("creditors"), "creditors table required");
 assert(tables.includes("accounting_pnl"), "accounting_pnl table required");
@@ -538,6 +631,9 @@ function qaPerson(partial: Partial<Person> & Pick<Person, "id" | "first_name" | 
     enquiry_date: "2026-09-01",
     lead_source: "family",
     lead_source_note: "",
+    lead_source_who: "",
+    caller_name: "",
+    resident_name: "",
     contact_method: "phone",
     assigned_to_user_id: "user_admissions",
     counsellor_user_id: partial.counsellor_user_id ?? "",
@@ -547,6 +643,7 @@ function qaPerson(partial: Partial<Person> & Pick<Person, "id" | "first_name" | 
     referrer_phone: partial.referrer_phone ?? "",
     next_of_kin_name: partial.next_of_kin_name ?? "",
     next_of_kin_phone: partial.next_of_kin_phone ?? "",
+    arp_email: "",
     funding_type: partial.funding_type ?? "medical_aid",
     funding_notes: "",
     currency: "ZAR",
@@ -556,6 +653,7 @@ function qaPerson(partial: Partial<Person> & Pick<Person, "id" | "first_name" | 
     house_preference: partial.house_preference ?? "",
     preferred_room_id: partial.preferred_room_id ?? "",
     commercial_notes: "",
+    not_converted_reason: "",
     assessment_details: "",
     assessment_notes: "",
     stage: partial.stage ?? "admit",
@@ -573,8 +671,12 @@ function qaPerson(partial: Partial<Person> & Pick<Person, "id" | "first_name" | 
     room_offered: 1,
     addon_medical_float: 0,
     addon_nursing_medical_admission: 0,
+    addon_nursing_days: 0,
     addon_psych_admission: 0,
     addon_overnight_supervision: 0,
+    addon_medical_visa: 0,
+    addon_detox_overnight: 0,
+    addon_detox_overnight_days: 0,
     transfer_extension_status: "",
     transfer_extension_notes: "",
     within_handoff_status: "none",

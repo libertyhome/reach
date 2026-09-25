@@ -1,6 +1,7 @@
 import { updateFieldsAction } from "@/app/actions";
+import { AddonDaysField } from "@/components/AddonDaysField";
 import { DetoxAddonFields } from "@/components/DetoxAddonFields";
-import { HOUSE_SHORT } from "@/lib/labels";
+import { HOUSE_SHORT, NOT_CONVERTED_REASON_LABEL } from "@/lib/labels";
 import {
   COMMERCIAL_ADDONS,
   CONTACT_METHODS,
@@ -9,6 +10,7 @@ import {
   CURRENCY_LABEL,
   FUNDING_TYPES,
   HOUSES,
+  NOT_CONVERTED_REASONS,
   type Person,
   type User,
 } from "@/lib/types";
@@ -32,6 +34,17 @@ export function PersonEditor({ person, staff }: { person: Person; staff: User[] 
         <span className="text-sm font-medium">Preferred name</span>
         <input name="preferred_name" defaultValue={person.preferred_name} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
       </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-sm font-medium">Caller name</span>
+          <input name="caller_name" defaultValue={person.caller_name} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium">Resident name</span>
+          <input name="resident_name" defaultValue={person.resident_name} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
+        </label>
+      </div>
+      <p className="text-sm text-muted">The caller is not always the resident.</p>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="text-sm font-medium">Phone</span>
@@ -108,19 +121,26 @@ export function PersonEditor({ person, staff }: { person: Person; staff: User[] 
           </label>
         </div>
       </fieldset>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block">
-          <span className="text-sm font-medium">Next of kin (ARP)</span>
-          <input name="next_of_kin_name" defaultValue={person.next_of_kin_name} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
-          <span className="mt-1 block text-xs text-muted">
-            Capture the account-responsible person (ARP) here for invoices and commercial sign-off.
-          </span>
-        </label>
-        <label className="block">
-          <span className="text-sm font-medium">Next of kin (ARP) phone</span>
-          <input name="next_of_kin_phone" defaultValue={person.next_of_kin_phone} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3" />
-        </label>
-      </div>
+      <fieldset className="rounded-2xl border border-line bg-linen px-4 py-3">
+        <legend className="px-1 text-sm font-medium">ARP</legend>
+        <p className="mb-3 text-xs text-muted">
+          Account-responsible person. This is the person on the file, not the ARF form.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="text-sm font-medium">ARP name</span>
+            <input name="next_of_kin_name" defaultValue={person.next_of_kin_name} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-paper px-3" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium">ARP phone</span>
+            <input name="next_of_kin_phone" defaultValue={person.next_of_kin_phone} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-paper px-3" />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="text-sm font-medium">ARP email</span>
+            <input name="arp_email" type="email" defaultValue={person.arp_email} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-paper px-3" />
+          </label>
+        </div>
+      </fieldset>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="text-sm font-medium">Funding</span>
@@ -187,11 +207,26 @@ export function PersonEditor({ person, staff }: { person: Person; staff: User[] 
       <fieldset className="rounded-2xl border border-line bg-linen px-4 py-3">
         <legend className="px-1 text-sm font-medium">Commercial add-ons</legend>
         <p className="mb-3 text-xs text-muted">
-          Optional line items for the commercial file — not clinical charges. Detox is optional before the programme:
-          turn it on, then choose 1–5 days. That day count is sent to Within on admit.
+          Optional line items for the commercial file. Detox before the programme uses 1–5 days and that count is sent
+          to Within on admit. Detox/overnight supervision and nursing keep their own day count on this file.
         </p>
         <ul className="space-y-2">
           <DetoxAddonFields detoxFirst={person.detox_first} expectedDetoxNights={person.expected_detox_nights} />
+          <AddonDaysField
+            name="addon_detox_overnight"
+            daysName="addon_detox_overnight_days"
+            label="Detox/overnight supervision"
+            checked={person.addon_detox_overnight === 1 || person.addon_overnight_supervision === 1}
+            days={person.addon_detox_overnight_days}
+            hint="Replaces overnight supervision. Leave days unset when they were not recorded."
+          />
+          <AddonDaysField
+            name="addon_nursing_medical_admission"
+            daysName="addon_nursing_days"
+            label="Nursing & medical admission"
+            checked={person.addon_nursing_medical_admission === 1}
+            days={person.addon_nursing_days}
+          />
           {COMMERCIAL_ADDONS.map((item) => (
             <li key={item.key}>
               <label className="flex min-h-10 items-center gap-3">
@@ -209,8 +244,19 @@ export function PersonEditor({ person, staff }: { person: Person; staff: User[] 
         </ul>
       </fieldset>
       <label className="block">
-        <span className="text-sm font-medium">Commercial notes</span>
+        <span className="text-sm font-medium">Notes</span>
         <textarea name="commercial_notes" rows={4} defaultValue={person.commercial_notes} className="mt-1 w-full rounded-xl border border-line bg-linen px-3 py-2" />
+      </label>
+      <label className="block">
+        <span className="text-sm font-medium">Reason for not converting</span>
+        <select name="not_converted_reason" defaultValue={person.not_converted_reason} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3">
+          <option value="">Not set</option>
+          {NOT_CONVERTED_REASONS.map((reason) => (
+            <option key={reason} value={reason}>
+              {NOT_CONVERTED_REASON_LABEL[reason]}
+            </option>
+          ))}
+        </select>
       </label>
       <button type="submit" className="min-h-12 rounded-full bg-sage px-5 text-paper">
         Save details

@@ -26,7 +26,7 @@ export function AdmitConfirm({ person, staff }: { person: Person; staff: User[] 
       </p>
       {!ready ? (
         <p className="rounded-2xl bg-sand px-4 py-3 text-sm">
-          Finish the commercial checklist first. This button stays off until every box is ticked.
+          Finish the admissions checklist first. This button stays off until every box is ticked.
         </p>
       ) : null}
       <label className="block">

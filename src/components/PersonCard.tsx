@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { HOUSE_SHORT, LEAD_SOURCE_LABEL, STAGE_LABEL, personDisplayName } from "@/lib/labels";
+import { HOUSE_SHORT, STAGE_LABEL, leadSourceLabel, personDisplayName } from "@/lib/labels";
 import { getRoom } from "@/lib/rooms";
 import {
   CONTACT_METHOD_LABEL,
@@ -26,7 +26,7 @@ export function PersonCard({ person, highlight }: { person: Person; highlight?: 
         <div>
           <p className="serif text-2xl text-sage-deep">{personDisplayName(person)}</p>
           <p className="mt-1 text-sm text-muted">
-            {LEAD_SOURCE_LABEL[person.lead_source]}
+            {leadSourceLabel(person.lead_source)}
             {contact ? ` · ${contact}` : ""}
             {person.phone ? ` · ${person.phone}` : ""}
             {assignee ? ` · ${assignee.name.split(/\s+/)[0]}` : ""}
@@ -38,10 +38,24 @@ export function PersonCard({ person, highlight }: { person: Person; highlight?: 
             : STAGE_LABEL[person.stage]}
         </span>
       </div>
+      {person.caller_name || person.resident_name ? (
+        <p className="mt-2 text-sm text-muted">
+          {person.caller_name ? `Caller ${person.caller_name}` : ""}
+          {person.caller_name && person.resident_name ? " · " : ""}
+          {person.resident_name ? `Resident ${person.resident_name}` : ""}
+        </p>
+      ) : null}
+      {person.next_of_kin_name || person.arp_email ? (
+        <p className="mt-2 text-sm">
+          ARP
+          {person.next_of_kin_name ? ` · ${person.next_of_kin_name}` : ""}
+          {person.arp_email ? ` · ${person.arp_email}` : ""}
+        </p>
+      ) : null}
       {person.commercial_notes ? (
         <p className="mt-3 line-clamp-2 text-sm">{person.commercial_notes}</p>
       ) : (
-        <p className="mt-3 text-sm text-muted">No commercial notes yet.</p>
+        <p className="mt-3 text-sm text-muted">No notes yet.</p>
       )}
       {person.expected_arrival ? (
         <p className="mt-2 text-xs uppercase tracking-wider text-muted">Arrival {person.expected_arrival}</p>

@@ -14,7 +14,23 @@ export type Stage = (typeof STAGES)[number];
 export const HOUSES = ["manor", "lodge"] as const;
 export type House = (typeof HOUSES)[number];
 
+/** Sources offered on new enquiries. */
 export const LEAD_SOURCES = [
+  "recovery_com",
+  "returning_client",
+  "ex_resident",
+  "google_com",
+  "google_nl",
+  "google_be",
+  "meta_ads",
+  "google_adwords",
+  "recovery_coach",
+  "referrer",
+  "personal_contact",
+] as const;
+
+/** Kept so existing enquiries still load. Not offered on a new enquiry. */
+export const LEGACY_LEAD_SOURCES = [
   "family",
   "self",
   "gp",
@@ -22,7 +38,23 @@ export const LEAD_SOURCES = [
   "referral_partner",
   "other",
 ] as const;
-export type LeadSource = (typeof LEAD_SOURCES)[number];
+
+export const ALL_LEAD_SOURCES = [...LEAD_SOURCES, ...LEGACY_LEAD_SOURCES] as const;
+export type LeadSource = (typeof ALL_LEAD_SOURCES)[number];
+
+/** These three ask for a free-text "Who?". */
+export const LEAD_SOURCES_WITH_WHO = ["recovery_coach", "referrer", "personal_contact"] as const;
+
+export const NOT_CONVERTED_REASONS = [
+  "location_mismatch",
+  "chose_competitor",
+  "affordability_above_budget",
+  "affordability_copayment",
+  "unresponsive",
+  "unsuitability_adolescent",
+  "clinical_unsuitability",
+] as const;
+export type NotConvertedReason = (typeof NOT_CONVERTED_REASONS)[number];
 
 export const FUNDING_TYPES = ["private", "medical_aid", "sponsor", "other"] as const;
 export type FundingType = (typeof FUNDING_TYPES)[number];
@@ -55,6 +87,12 @@ export const ADMISSION_KIND_LABEL: Record<AdmissionKind, string> = {
  */
 export const EXPECTED_DETOX_NIGHTS = [1, 2, 3, 4, 5] as const;
 export type ExpectedDetoxNights = (typeof EXPECTED_DETOX_NIGHTS)[number];
+
+/**
+ * Day count for the nursing add-on and for detox/overnight supervision.
+ * Separate from expected_detox_nights, which is the treatment detox count sent to Within.
+ */
+export const ADDON_DAY_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] as const;
 
 /** Manor program phase at admit. Lodge is always Phase 3 (sober living). */
 export const MANOR_PHASES = ["1", "2"] as const;
@@ -117,6 +155,12 @@ export type Person = {
   enquiry_date: string;
   lead_source: LeadSource;
   lead_source_note: string;
+  /** Free text for Recovery Coach, Referrer, and Personal Contact. */
+  lead_source_who: string;
+  /** Person who made contact. Not always the resident. */
+  caller_name: string;
+  /** Person who would be admitted. Not always the caller. */
+  resident_name: string;
   contact_method: ContactMethod | "";
   assigned_to_user_id: string;
   counsellor_user_id: string;
@@ -124,8 +168,11 @@ export type Person = {
   referrer_name: string;
   referrer_contact_person: string;
   referrer_phone: string;
+  /** ARP name. Column kept so existing next-of-kin values stay the ARP. */
   next_of_kin_name: string;
+  /** ARP phone. */
   next_of_kin_phone: string;
+  arp_email: string;
   funding_type: FundingType;
   funding_notes: string;
   currency: Currency;
@@ -135,6 +182,7 @@ export type Person = {
   house_preference: House | "either" | "";
   preferred_room_id: string;
   commercial_notes: string;
+  not_converted_reason: NotConvertedReason | "";
   assessment_details: string;
   assessment_notes: string;
   stage: Stage;
@@ -152,8 +200,15 @@ export type Person = {
   room_offered: number;
   addon_medical_float: number;
   addon_nursing_medical_admission: number;
+  /** 0 when nursing is off or the day count was never recorded. */
+  addon_nursing_days: number;
   addon_psych_admission: number;
+  /** Historical flag. Mapped onto addon_detox_overnight; cleared when that add-on is turned off. */
   addon_overnight_supervision: number;
+  addon_medical_visa: number;
+  addon_detox_overnight: number;
+  /** 0 when detox/overnight supervision is off or the day count was never recorded. */
+  addon_detox_overnight_days: number;
   transfer_extension_status: TransferExtensionStatus;
   transfer_extension_notes: string;
   within_handoff_status: HandoffStatus;
@@ -214,12 +269,6 @@ export const COMMERCIAL_CHECKLIST = [
     help: "Invoice paid / deposit landed.",
   },
   {
-    key: "arp_signed",
-    label: "ARP signed",
-    roleHint: "Accounts",
-    help: "Account-responsible person signed the commercial paperwork.",
-  },
-  {
     key: "accounts_approved",
     label: "Accounts approved",
     roleHint: "Accounts",
@@ -259,12 +308,15 @@ export const COMMERCIAL_CHECKLIST = [
 
 export type ChecklistKey = (typeof COMMERCIAL_CHECKLIST)[number]["key"];
 
-/** Boolean commercial add-ons. Detox is separate: it also records a 1–5 day count. */
+/**
+ * Boolean commercial add-ons.
+ * Nursing and detox/overnight supervision are separate: each also stores a day count.
+ * The treatment Detox add-on (1–5 days, sent to Within) is not in this list.
+ */
 export const COMMERCIAL_ADDONS = [
   { key: "addon_medical_float", label: "Medical float" },
-  { key: "addon_nursing_medical_admission", label: "Nursing & medical admission" },
   { key: "addon_psych_admission", label: "Psych admission" },
-  { key: "addon_overnight_supervision", label: "Overnight supervision" },
+  { key: "addon_medical_visa", label: "Medical Visa" },
 ] as const;
 
 export type AddonKey = (typeof COMMERCIAL_ADDONS)[number]["key"];
