@@ -118,6 +118,7 @@ export function createEnquiry(
     referrer_contact_person?: string;
     referrer_phone?: string;
     commercial_notes?: string;
+    house_preference?: Person["house_preference"];
   },
   actor: User,
 ) {

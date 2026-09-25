@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { PersonCard } from "./PersonCard";
+import { listSourceBadges } from "@/lib/lead-forms";
 import type { Person } from "@/lib/types";
+import { PersonCard } from "./PersonCard";
 
 export function StageBoard({
   title,
@@ -19,6 +20,7 @@ export function StageBoard({
   actionHref?: string;
   actionLabel?: string;
 }) {
+  const badges = listSourceBadges(people.map((person) => person.id));
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -37,7 +39,7 @@ export function StageBoard({
           <p className="rounded-3xl border border-dashed border-line p-6 text-muted md:col-span-2">{empty}</p>
         ) : null}
         {people.map((person) => (
-          <PersonCard key={person.id} person={person} highlight={person.id === highlightId} />
+          <PersonCard key={person.id} person={person} highlight={person.id === highlightId} source={badges.get(person.id) ?? null} />
         ))}
       </div>
     </>

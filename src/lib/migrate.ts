@@ -440,4 +440,104 @@ export function migrate(db: Database.Database) {
   `);
 
   syncRoomCatalog(db);
+  migrateLeadForms(db);
+}
+
+/**
+ * Lead-form tables only. Creates missing tables and adds missing columns.
+ * Does not UPDATE, DELETE, or rebuild people, rooms, or bed assignments.
+ */
+export function migrateLeadForms(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lead_forms (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      lead_source TEXT NOT NULL,
+      campaign TEXT NOT NULL DEFAULT '',
+      lead_source_who TEXT NOT NULL DEFAULT '',
+      allowed_domains TEXT NOT NULL DEFAULT '',
+      external_key TEXT NOT NULL DEFAULT '',
+      privacy_url TEXT NOT NULL DEFAULT '/privacy',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_lead_forms_external ON lead_forms(external_key);
+
+    CREATE TABLE IF NOT EXISTS enquiry_intake (
+      person_id TEXT PRIMARY KEY,
+      form_id TEXT NOT NULL DEFAULT '',
+      caller_name TEXT NOT NULL DEFAULT '',
+      resident_name TEXT NOT NULL DEFAULT '',
+      country TEXT NOT NULL DEFAULT '',
+      preferred_house TEXT NOT NULL DEFAULT '',
+      intake_source TEXT NOT NULL DEFAULT '',
+      campaign TEXT NOT NULL DEFAULT '',
+      message TEXT NOT NULL DEFAULT '',
+      utm_source TEXT NOT NULL DEFAULT '',
+      utm_medium TEXT NOT NULL DEFAULT '',
+      utm_campaign TEXT NOT NULL DEFAULT '',
+      utm_term TEXT NOT NULL DEFAULT '',
+      utm_content TEXT NOT NULL DEFAULT '',
+      gclid TEXT NOT NULL DEFAULT '',
+      fbclid TEXT NOT NULL DEFAULT '',
+      referrer_url TEXT NOT NULL DEFAULT '',
+      landing_url TEXT NOT NULL DEFAULT '',
+      popia_consent INTEGER NOT NULL DEFAULT 0,
+      channel TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_enquiry_intake_source ON enquiry_intake(intake_source, campaign);
+
+    CREATE TABLE IF NOT EXISTS enquiry_touches (
+      id TEXT PRIMARY KEY,
+      person_id TEXT NOT NULL,
+      form_id TEXT NOT NULL DEFAULT '',
+      channel TEXT NOT NULL DEFAULT '',
+      caller_name TEXT NOT NULL DEFAULT '',
+      resident_name TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      normalized_phone TEXT NOT NULL DEFAULT '',
+      normalized_email TEXT NOT NULL DEFAULT '',
+      country TEXT NOT NULL DEFAULT '',
+      preferred_house TEXT NOT NULL DEFAULT '',
+      message TEXT NOT NULL DEFAULT '',
+      intake_source TEXT NOT NULL DEFAULT '',
+      campaign TEXT NOT NULL DEFAULT '',
+      utm_source TEXT NOT NULL DEFAULT '',
+      utm_medium TEXT NOT NULL DEFAULT '',
+      utm_campaign TEXT NOT NULL DEFAULT '',
+      utm_term TEXT NOT NULL DEFAULT '',
+      utm_content TEXT NOT NULL DEFAULT '',
+      gclid TEXT NOT NULL DEFAULT '',
+      fbclid TEXT NOT NULL DEFAULT '',
+      referrer_url TEXT NOT NULL DEFAULT '',
+      landing_url TEXT NOT NULL DEFAULT '',
+      popia_consent INTEGER NOT NULL DEFAULT 0,
+      external_id TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_touches_person ON enquiry_touches(person_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_touches_phone ON enquiry_touches(normalized_phone, created_at);
+    CREATE INDEX IF NOT EXISTS idx_touches_email ON enquiry_touches(normalized_email, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_touches_external ON enquiry_touches(external_id) WHERE external_id != '';
+
+    CREATE TABLE IF NOT EXISTS lead_form_hits (
+      id TEXT PRIMARY KEY,
+      ip TEXT NOT NULL,
+      form_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_lead_hits ON lead_form_hits(ip, form_id, created_at);
+  `);
+
+  const columns = new Set(
+    (db.prepare(`PRAGMA table_info(lead_forms)`).all() as { name: string }[]).map((column) => column.name),
+  );
+  if (!columns.has("lead_source_who")) {
+    db.exec(`ALTER TABLE lead_forms ADD COLUMN lead_source_who TEXT NOT NULL DEFAULT ''`);
+  }
 }

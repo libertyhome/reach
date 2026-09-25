@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { logoutAction } from "@/app/actions";
-import { canViewCreditors, canViewExecutive } from "@/lib/access";
+import { canManageLeadForms, canViewCreditors, canViewExecutive } from "@/lib/access";
 import { FINANCE_NAV, ROLE_LABEL, STAGE_NAV } from "@/lib/labels";
 import type { User } from "@/lib/types";
 import { BrandMark } from "./BrandMark";
@@ -44,6 +44,7 @@ export function AppShell({
   const leadership = [
     ...(canViewExecutive(user) ? [{ href: "/executive", label: "Executive" }] : []),
     ...(canViewCreditors(user) ? [{ href: "/creditors", label: "Creditors" }] : []),
+    ...(canManageLeadForms(user) ? [{ href: "/lead-forms", label: "Lead forms" }] : []),
   ];
 
   return (

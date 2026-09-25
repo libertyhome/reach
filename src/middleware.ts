@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { allowedHostsFor, frameAncestorsCsp, getActiveLeadFormBySlug } from "@/lib/lead-forms";
 import { SESSION_COOKIE, sessionTokenLooksValid } from "@/lib/session";
+
+export const runtime = "nodejs";
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   const valid = sessionTokenLooksValid(token);
-  const isLogin = request.nextUrl.pathname.startsWith("/login");
+  const { pathname } = request.nextUrl;
+  const isLogin = pathname.startsWith("/login");
+  const isPublic = pathname === "/privacy" || pathname.startsWith("/f/");
 
-  if (!valid && !isLogin) {
+  if (!valid && !isLogin && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     const next = `${request.nextUrl.pathname}${request.nextUrl.search}`;
@@ -30,7 +35,21 @@ export function middleware(request: NextRequest) {
     return response;
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  const embedMatch = pathname.match(/^\/f\/([^/]+)\/embed\/?$/);
+  if (embedMatch) {
+    let policy = frameAncestorsCsp([]);
+    try {
+      const form = getActiveLeadFormBySlug(decodeURIComponent(embedMatch[1]));
+      if (form) policy = frameAncestorsCsp(allowedHostsFor(form));
+    } catch {
+      policy = frameAncestorsCsp([]);
+    }
+    response.headers.set("Content-Security-Policy", policy);
+  } else if (/^\/f\/[^/]+$/.test(pathname)) {
+    response.headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+  }
+  return response;
 }
 
 export const config = {

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { canViewCreditors, canViewExecutive } from "./access";
+import { canManageLeadForms, canViewCreditors, canViewExecutive } from "./access";
 import { getCurrentUser } from "./auth";
 import { seedIfEmpty } from "./seed";
 import type { User } from "./types";
@@ -18,6 +18,13 @@ export async function requireStaff(): Promise<User> {
 export async function requireExecutiveAccess(): Promise<User> {
   const user = await requireStaff();
   if (!canViewExecutive(user)) redirect("/enquiries");
+  return user;
+}
+
+/** Lead form builder and the source report. Executive (admin desk) only. */
+export async function requireLeadFormAdmin(): Promise<User> {
+  const user = await requireStaff();
+  if (!canManageLeadForms(user)) redirect("/enquiries");
   return user;
 }
 

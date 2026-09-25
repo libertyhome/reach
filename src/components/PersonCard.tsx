@@ -7,8 +7,17 @@ import {
   type Person,
 } from "@/lib/types";
 import { findUserById } from "@/lib/users";
+import { SourceBadge } from "./SourceBadge";
 
-export function PersonCard({ person, highlight }: { person: Person; highlight?: boolean }) {
+export function PersonCard({
+  person,
+  highlight,
+  source,
+}: {
+  person: Person;
+  highlight?: boolean;
+  source?: { label: string; campaign: string; callerNote: string } | null;
+}) {
   const room = person.room_id ? getRoom(person.room_id) : null;
   const assignee = person.assigned_to_user_id ? findUserById(person.assigned_to_user_id) : null;
   const contact =
@@ -26,17 +35,25 @@ export function PersonCard({ person, highlight }: { person: Person; highlight?: 
         <div>
           <p className="serif text-2xl text-sage-deep">{personDisplayName(person)}</p>
           <p className="mt-1 text-sm text-muted">
-            {leadSourceLabel(person.lead_source)}
-            {contact ? ` · ${contact}` : ""}
-            {person.phone ? ` · ${person.phone}` : ""}
-            {assignee ? ` · ${assignee.name.split(/\s+/)[0]}` : ""}
+            {[
+              source ? "" : leadSourceLabel(person.lead_source),
+              contact,
+              person.phone,
+              assignee ? assignee.name.split(/\s+/)[0] : "",
+              person.caller_name ? "" : (source?.callerNote ?? ""),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         </div>
-        <span className="rounded-full bg-sand px-3 py-1 text-xs uppercase tracking-wider">
-          {person.stage === "resident" && person.house
-            ? `${HOUSE_SHORT[person.house]}${room ? ` · ${room.name}` : ""}`
-            : STAGE_LABEL[person.stage]}
-        </span>
+        <div className="flex flex-wrap justify-end gap-2">
+          {source ? <SourceBadge label={source.label} campaign={source.campaign} /> : null}
+          <span className="rounded-full bg-sand px-3 py-1 text-xs uppercase tracking-wider">
+            {person.stage === "resident" && person.house
+              ? `${HOUSE_SHORT[person.house]}${room ? ` · ${room.name}` : ""}`
+              : STAGE_LABEL[person.stage]}
+          </span>
+        </div>
       </div>
       {person.caller_name || person.resident_name ? (
         <p className="mt-2 text-sm text-muted">

@@ -5,7 +5,7 @@ import { roomId } from "./houses";
 import { newId } from "./passwords";
 import { findPersonByName, insertPerson, replacePerson } from "./people";
 import { ensureRooms } from "./rooms";
-import type { House, LeadSource, Person, Stage } from "./types";
+import { LEAD_SOURCES, type House, type LeadSource, type Person, type Stage } from "./types";
 import { findUserByEmail, upsertUser } from "./users";
 
 const STAFF = [
@@ -360,6 +360,8 @@ export function seedIfEmpty() {
 }
 
 export function seed() {
+  // Railway runs `npm run db:seed` on every production deploy.
+  // Lead forms, and the enquiries they open, are created in the app. Do not insert them here.
   ensureRooms();
   const createdAt = iso(40, 8);
   for (const staff of STAFF) {
@@ -683,7 +685,7 @@ function backfillHandoffIds() {
 }
 
 export function seedLeadSources(): LeadSource[] {
-  return ["family", "self", "gp", "website", "referral_partner", "other"];
+  return [...LEAD_SOURCES];
 }
 
 export function seedStages(): Stage[] {

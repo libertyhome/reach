@@ -8,6 +8,7 @@ import {
   sageConnector,
 } from "../src/lib/accounting/connector";
 import { canSendToWithin, canViewCreditors, canViewExecutive } from "../src/lib/access";
+import { assertLeadForms } from "./assert-lead-forms";
 import { clearAccountingFixtures, createCreditor, pullAccounting, readProfitAndLossStrip } from "../src/lib/creditors";
 import { getDb } from "../src/lib/db";
 import { LEAD_SOURCE_LABEL, NOT_CONVERTED_REASON_LABEL } from "../src/lib/labels";
@@ -58,6 +59,12 @@ import {
 
 getDb();
 seed();
+{
+  const seededForms = getDb().prepare(`SELECT COUNT(*) AS n FROM lead_forms`).get() as { n: number };
+  const seededIntake = getDb().prepare(`SELECT COUNT(*) AS n FROM enquiry_intake`).get() as { n: number };
+  assert.strictEqual(seededForms.n, 0, "Production seed must not insert lead forms");
+  assert.strictEqual(seededIntake.n, 0, "Production seed must not insert lead-form enquiries");
+}
 
 const amelia = findPersonByName("Amelia", "Hart");
 assert(amelia, "Amelia Hart must be seeded");
@@ -1350,7 +1357,8 @@ async function runOccupancyQa() {
   assert.strictEqual(requestHasHandoffSecret(new Request("https://reach.example/api/documents/doc"), "occupancy-secret"), false);
 }
 
-runMockedWithinSend()
+assertLeadForms()
+  .then(() => runMockedWithinSend())
   .then(() => runOccupancyQa())
   .then(() => {
     console.log("QA assertions passed.");
