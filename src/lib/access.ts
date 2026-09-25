@@ -20,3 +20,8 @@ export function canViewCreditors(user: Pick<User, "role">) {
 export function canSendToWithin(user: Pick<User, "role">) {
   return user.role === "admissions" || user.role === "executive";
 }
+
+/** Lead form builder. Reach has no separate admin role; Executive is the admin desk. */
+export function canManageLeadForms(user: Pick<User, "role">) {
+  return user.role === "executive";
+}

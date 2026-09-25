@@ -8,6 +8,7 @@ import {
   sageConnector,
 } from "../src/lib/accounting/connector";
 import { canSendToWithin, canViewCreditors, canViewExecutive } from "../src/lib/access";
+import { assertLeadForms } from "./assert-lead-forms";
 import { clearAccountingFixtures, createCreditor, pullAccounting, readProfitAndLossStrip } from "../src/lib/creditors";
 import { getDb } from "../src/lib/db";
 import { LEAD_SOURCE_LABEL, NOT_CONVERTED_REASON_LABEL } from "../src/lib/labels";
@@ -1350,7 +1351,8 @@ async function runOccupancyQa() {
   assert.strictEqual(requestHasHandoffSecret(new Request("https://reach.example/api/documents/doc"), "occupancy-secret"), false);
 }
 
-runMockedWithinSend()
+assertLeadForms()
+  .then(() => runMockedWithinSend())
   .then(() => runOccupancyQa())
   .then(() => {
     console.log("QA assertions passed.");

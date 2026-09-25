@@ -7,7 +7,9 @@ import { AuditList } from "@/components/AuditList";
 import { ChecklistForm } from "@/components/ChecklistForm";
 import { DocumentPanel } from "@/components/DocumentPanel";
 import { HouseAssign } from "@/components/HouseAssign";
+import { IntakePanel } from "@/components/IntakePanel";
 import { LeadSourceForm } from "@/components/LeadSourceForm";
+import { SourceBadge } from "@/components/SourceBadge";
 import { PersonEditor } from "@/components/PersonEditor";
 import { SendToWithin } from "@/components/SendToWithin";
 import { StageMove } from "@/components/StageMove";
@@ -17,6 +19,7 @@ import { listAudit } from "@/lib/audit";
 import { listDocuments } from "@/lib/documents";
 import { HOUSE_SHORT, STAGE_LABEL, STAGE_NAV, admissionSummary, personDisplayName } from "@/lib/labels";
 import { programPhaseFor } from "@/lib/occupancy";
+import { getEnquiryIntake, getSourceBadge, listEnquiryTouches } from "@/lib/lead-forms";
 import { requireStaff } from "@/lib/page-helpers";
 import { getPerson } from "@/lib/people";
 import { getRoom } from "@/lib/rooms";
@@ -38,6 +41,9 @@ export default async function PersonPage({
   const preferred = person.preferred_room_id ? getRoom(person.preferred_room_id) : null;
   const staff = listUsers();
   const phase = programPhaseFor(person);
+  const source = getSourceBadge(person.id);
+  const intake = getEnquiryIntake(person.id);
+  const touches = intake ? listEnquiryTouches(person.id) : [];
   const assignee = person.assigned_to_user_id
     ? staff.find((member) => member.id === person.assigned_to_user_id)
     : null;
@@ -80,6 +86,7 @@ export default async function PersonPage({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          {source ? <SourceBadge label={source.label} campaign={source.campaign} /> : null}
           {person.within_handoff_status !== "none" ? (
             <span className="rounded-full bg-sand px-3 py-1 text-xs uppercase tracking-wider">
               Within admission pack
@@ -97,6 +104,12 @@ export default async function PersonPage({
           ) : null}
         </div>
       </div>
+
+      {intake ? (
+        <div className="mt-8">
+          <IntakePanel intake={intake} touches={touches} />
+        </div>
+      ) : null}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <div className="space-y-6">
