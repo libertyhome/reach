@@ -804,6 +804,10 @@ const mock = http.createServer(async (req, res) => {
 });
 
 async function runMockedWithinSend() {
+  if (!therapistActor) throw new Error("Therapist staff user is missing.");
+  if (!admissionsActor) throw new Error("Admissions staff user is missing.");
+  if (!executiveActorForSend) throw new Error("Executive staff user is missing.");
+
 await new Promise<void>((resolve) => mock.listen(0, "127.0.0.1", resolve));
 const address = mock.address();
 const port = typeof address === "object" && address ? address.port : 0;
