@@ -28,7 +28,13 @@ import { contentDispositionFor, documentReachPath, resolveUploadsRoot } from "..
 import { requestHasHandoffSecret } from "../src/lib/handoff";
 import { bedCapacity, roomId } from "../src/lib/houses";
 import { listRooms } from "../src/lib/rooms";
-import { adaptOccupancy, clearOccupancyCache, readHouseOccupancy } from "../src/lib/within-occupancy";
+import {
+  adaptOccupancy,
+  bedsAvailable,
+  clearOccupancyCache,
+  readHouseOccupancy,
+  unassignedNotice,
+} from "../src/lib/within-occupancy";
 import { seed } from "../src/lib/seed";
 import { authenticate, findUserById, listUsers } from "../src/lib/users";
 import { listAudit, undoEvent } from "../src/lib/audit";
@@ -1063,70 +1069,188 @@ try {
 }
 }
 
+function namedResidents(prefix: string, count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    name: `${prefix} ${index + 1}`,
+    clientId: `${prefix}-${index + 1}`,
+    admissionDate: "2026-09-01",
+  }));
+}
+
 async function runOccupancyQa() {
   clearOccupancyCache();
   const adapted = adaptOccupancy({
+    ok: true,
+    asOf: "2026-09-25T18:00:00.000Z",
     houses: [
       {
         house: "weltevreden_manor",
-        totals: { capacity: 22, occupied: 1 },
+        name: "Weltevreden Manor",
+        capacity: 22,
+        occupied: 1,
+        available: 21,
+        unassigned: [],
         rooms: [
           {
+            id: "willow",
             name: "Willow",
             capacity: 4,
-            beds: [{ patientName: "Ada Nkosi", clientId: "client-ada", admissionDate: "2026-09-12" }, null],
+            beds: [
+              {
+                id: "willow-1",
+                name: "Bed 1",
+                occupied: true,
+                patient: { name: "Ada Nkosi", clientId: "client-ada", admissionDate: "2026-09-12" },
+              },
+              { id: "willow-2", name: "Bed 2", occupied: false, patient: null },
+            ],
           },
         ],
       },
       {
-        id: "liberty_lodge",
+        house: "liberty_lodge",
+        capacity: 16,
+        occupied: 0,
+        available: 16,
+        unassigned: [{ name: "Sam Vale", clientId: "client-sam", admissionDate: "2026-09-01" }],
         rooms: [
           {
-            room_name: "Room 6",
-            bed_count: 3,
-            patients: [{ patient_name: "Sam Vale", client_id: "client-sam", admission_date: "2026-09-01" }],
+            id: "lodge-6",
+            name: "Room 6",
+            capacity: 3,
+            private: false,
+            beds: [
+              { id: "lodge-6-1", name: "Bed 1", occupied: false, patient: null },
+              { id: "lodge-6-2", name: "Bed 2", occupied: false, patient: null },
+              { id: "lodge-6-3", name: "Bed 3", occupied: false, patient: null },
+            ],
           },
         ],
       },
     ],
+    totals: { capacity: 38, occupied: 1, available: 37, unassigned: 1 },
   });
-  assert(adapted?.manor && adapted.lodge, "Occupancy adapter keeps Manor and Lodge apart");
-  assert.strictEqual(adapted.manor.rooms[0].occupants[0].patientName, "Ada Nkosi");
-  assert.strictEqual(adapted.lodge.rooms[0].name, "Room 6");
-  assert.strictEqual(adapted.lodge.rooms[0].capacity, 3);
+  assert(adapted?.houses.manor && adapted.houses.lodge, "Occupancy adapter keeps Manor and Lodge apart");
+  assert.strictEqual(adapted.asOf, "2026-09-25T18:00:00.000Z");
+  assert.strictEqual(adapted.houses.manor.rooms[0].beds[0].occupant?.patientName, "Ada Nkosi");
+  assert.strictEqual(adapted.houses.manor.rooms[0].beds[0].label, "Bed 1");
+  assert.strictEqual(adapted.houses.manor.rooms[0].beds[1].occupant, null);
+  assert.strictEqual(adapted.houses.lodge.rooms[0].name, "Room 6");
+  assert.strictEqual(adapted.houses.lodge.unassigned[0].patientName, "Sam Vale");
+  assert.strictEqual(adaptOccupancy({ ok: false, error: "no" }), null, "A refused body must not replace the last sync");
   assert.strictEqual(adaptOccupancy({ ok: true }), null, "A non-census body must not replace the last sync");
+  assert.strictEqual(unassignedNotice(23), "23 residents not yet allocated to a bed in Within");
+  assert.strictEqual(unassignedNotice(1), "1 resident not yet allocated to a bed in Within");
+  assert.strictEqual(bedsAvailable(22, 23), 0);
+  assert.strictEqual(bedsAvailable(16, 12), 4);
 
+  let productionShape = false;
   const server = http.createServer((req, res) => {
-    if (req.headers.authorization !== "Bearer occupancy-secret") {
+    const bearer = req.headers.authorization || "";
+    const header = req.headers["x-reach-handoff-secret"] || "";
+    if (bearer !== "Bearer occupancy-secret" && header !== "occupancy-secret") {
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end("{}");
+      res.end(JSON.stringify({ ok: false, code: "unauthorized" }));
       return;
     }
     res.writeHead(200, { "Content-Type": "application/json" });
+    if (!productionShape) {
+      res.end(
+        JSON.stringify({
+          ok: true,
+          asOf: "2026-09-25T12:00:00.000Z",
+          houses: [
+            {
+              house: "weltevreden_manor",
+              capacity: 22,
+              occupied: 1,
+              available: 21,
+              unassigned: [],
+              rooms: [
+                {
+                  name: "Holly",
+                  capacity: 1,
+                  beds: [
+                    {
+                      id: "holly-1",
+                      name: "Bed 1",
+                      occupied: true,
+                      patient: { name: "Holly Guest", clientId: "c-holly", admissionDate: "2026-09-02" },
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              house: "liberty_lodge",
+              capacity: 16,
+              occupied: 1,
+              available: 15,
+              unassigned: [],
+              rooms: [
+                {
+                  name: "Room 7",
+                  capacity: 1,
+                  beds: [
+                    {
+                      id: "lodge-7-1",
+                      name: "Bed 1",
+                      occupied: true,
+                      patient: { name: "Lodge Guest", clientId: "c-lodge", admissionDate: "2026-09-03" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          totals: { capacity: 38, occupied: 2, available: 36, unassigned: 0 },
+        }),
+      );
+      return;
+    }
     res.end(
       JSON.stringify({
+        ok: true,
+        asOf: "2026-09-25T18:00:00.000Z",
         houses: [
           {
-            house: "manor",
+            house: "weltevreden_manor",
+            capacity: 22,
+            occupied: 0,
+            available: 22,
+            unassigned: namedResidents("Manor resident", 23),
             rooms: [
               {
-                name: "Holly",
-                capacity: 1,
-                beds: [{ patientName: "Holly Guest", clientId: "c-holly", admissionDate: "2026-09-02" }],
+                name: "Willow",
+                capacity: 4,
+                beds: [
+                  { id: "willow-1", name: "Bed 1", occupied: false, patient: null },
+                  { id: "willow-2", name: "Bed 2", occupied: false, patient: null },
+                  { id: "willow-3", name: "Bed 3", occupied: false, patient: null },
+                  { id: "willow-4", name: "Bed 4", occupied: false, patient: null },
+                ],
               },
             ],
           },
           {
-            house: "lodge",
+            house: "liberty_lodge",
+            capacity: 16,
+            occupied: 0,
+            available: 16,
+            unassigned: namedResidents("Lodge resident", 12),
             rooms: [
               {
-                name: "Room 7",
-                capacity: 1,
-                beds: [{ patientName: "Lodge Guest", clientId: "c-lodge", admissionDate: "2026-09-03" }],
+                name: "Room 1",
+                capacity: 2,
+                beds: [
+                  { id: "lodge-1-1", name: "Bed 1", occupied: false, patient: null },
+                  { id: "lodge-1-2", name: "Bed 2", occupied: false, patient: null },
+                ],
               },
             ],
           },
         ],
+        totals: { capacity: 38, occupied: 0, available: 38, unassigned: 35 },
       }),
     );
   });
@@ -1144,7 +1268,9 @@ async function runOccupancyQa() {
     });
     assert.strictEqual(live.live, true);
     assert.strictEqual(live.unreachable, false);
+    assert.strictEqual(live.syncedAt, "2026-09-25T12:00:00.000Z");
     assert.strictEqual(live.rooms.find((room) => room.name === "Holly")?.beds[0].patientName, "Holly Guest");
+    assert.notStrictEqual(live.rooms.find((room) => room.name === "Holly")?.beds[0].patientName, "Bed 1");
     const willow = live.rooms.find((room) => room.name === "Willow");
     assert(willow && willow.capacity === 4);
     assert.ok(willow.beds.every((bed) => bed.status === "vacant"));
@@ -1163,6 +1289,29 @@ async function runOccupancyQa() {
     assert.strictEqual(stale.rooms.find((room) => room.name === "Holly")?.beds[0].patientName, "Holly Guest");
     assert.ok(stale.syncedAtLabel, "Unreachable Within still shows when occupancy last synced");
 
+    productionShape = true;
+    const manorWaiting = await readHouseOccupancy("manor", {
+      baseUrl,
+      secret: "occupancy-secret",
+      timeoutMs: 2000,
+    });
+    assert.strictEqual(manorWaiting.occupied, 23, "Unassigned residents count as occupied");
+    assert.strictEqual(manorWaiting.available, 0, "Available beds do not go below zero");
+    assert.strictEqual(manorWaiting.unassignedCount, 23);
+    assert.strictEqual(unassignedNotice(manorWaiting.unassignedCount), "23 residents not yet allocated to a bed in Within");
+    assert.ok(manorWaiting.rooms.find((room) => room.name === "Willow")?.beds.every((bed) => bed.status === "vacant"));
+    assert.strictEqual(manorWaiting.rooms.some((room) => room.name === "Room 1"), false);
+
+    const lodgeWaiting = await readHouseOccupancy("lodge", {
+      baseUrl,
+      secret: "occupancy-secret",
+      timeoutMs: 2000,
+    });
+    assert.strictEqual(lodgeWaiting.occupied, 12);
+    assert.strictEqual(lodgeWaiting.available, 4, "Lodge is not shown as 16 beds free");
+    assert.strictEqual(lodgeWaiting.unassignedCount, 12);
+    assert.strictEqual(lodgeWaiting.rooms.some((room) => room.name === "Willow"), false);
+
     clearOccupancyCache();
     const none = await readHouseOccupancy("lodge", {
       baseUrl: "http://127.0.0.1:1",
@@ -1171,8 +1320,17 @@ async function runOccupancyQa() {
     });
     assert.strictEqual(none.known, false);
     assert.strictEqual(none.occupied, 0);
+    assert.strictEqual(none.available, 0);
     assert.ok(none.rooms.every((room) => room.beds.every((bed) => bed.status === "unknown")));
     assert.strictEqual(none.rooms.some((room) => room.name === "Willow"), false);
+
+    const crashed = await readHouseOccupancy("manor", {
+      fetchImpl: async () => {
+        throw new Error("socket hang up");
+      },
+    });
+    assert.strictEqual(crashed.known, false);
+    assert.strictEqual(crashed.unreachable, true);
   } finally {
     clearOccupancyCache();
     await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -6,38 +6,34 @@ import { findPersonByWithinClientId } from "./people";
 import type { House } from "./types";
 
 /**
- * Live bed census from Within.
+ * Live bed census from Within. Spec: libertyhome/within docs/reach-handoff.md.
  *
- * Suggested contract (field names are adapted, not hard-coded into the UI):
  * GET /api/integration/occupancy
  * Authorization: Bearer <REACH_WITHIN_HANDOFF_SECRET>
- * (X-Reach-Handoff-Secret is accepted by Within on the send; we send Bearer.)
+ * X-Reach-Handoff-Secret is the same secret.
  *
- * {
- *   "houses": [
- *     {
- *       "house": "weltevreden_manor" | "liberty_lodge",
- *       "totals": { "capacity": 22, "occupied": 1 },
- *       "rooms": [
- *         {
- *           "name": "Willow",
- *           "capacity": 4,
- *           "beds": [
- *             { "patientName": "Ada Nkosi", "clientId": "reach-ada", "admissionDate": "2026-09-12" }
- *           ]
- *         }
- *       ]
- *     }
- *   ]
- * }
+ * { ok, asOf, houses, totals }
+ * Each house has capacity, occupied, available, unassigned, and rooms.
+ * Each bed has a patient or null. unassigned is residents with no bed yet.
+ * Within's occupied/available ignore those people. Reach counts them as occupied
+ * so an empty bed board is not shown as a free house.
  *
- * Manor and Lodge are parsed into separate houses and rendered on separate pages.
+ * Manor and Lodge stay in separate objects and on separate pages.
  */
 
 const CACHE_ID = "latest";
 
 export type BedSlot = {
+  id: string;
+  label: string;
   status: "occupied" | "vacant" | "unknown";
+  patientName: string;
+  clientId: string;
+  admissionDate: string;
+  reachPersonId: string;
+};
+
+export type UnassignedResident = {
   patientName: string;
   clientId: string;
   admissionDate: string;
@@ -54,7 +50,13 @@ export type OccupancyRoomView = {
 export type HouseOccupancyView = {
   house: House;
   capacity: number;
+  /** Patients in a bed, plus residents not yet allocated. */
   occupied: number;
+  bedOccupied: number;
+  /** capacity minus occupied, and never below zero. */
+  available: number;
+  unassignedCount: number;
+  unassigned: UnassignedResident[];
   rooms: OccupancyRoomView[];
   syncedAt: string;
   syncedAtLabel: string;
@@ -69,18 +71,26 @@ type Occupant = {
   admissionDate: string;
 };
 
+type ParsedBed = {
+  id: string;
+  label: string;
+  occupant: Occupant | null;
+};
+
 type ParsedRoom = {
   name: string;
   capacity: number;
-  occupants: Occupant[];
+  beds: ParsedBed[];
 };
 
 type ParsedHouse = {
+  capacity: number;
+  unassigned: Occupant[];
   rooms: ParsedRoom[];
 };
 
-type CachedCensus = {
-  syncedAt: string;
+export type AdaptedOccupancy = {
+  asOf: string;
   houses: Partial<Record<House, ParsedHouse>>;
 };
 
@@ -97,6 +107,16 @@ const HOUSE_KEYS: Record<string, House> = {
   "liberty lodge": "lodge",
 };
 
+export function unassignedNotice(count: number) {
+  if (count <= 0) return "";
+  const noun = count === 1 ? "resident" : "residents";
+  return `${count} ${noun} not yet allocated to a bed in Within`;
+}
+
+export function bedsAvailable(capacity: number, occupied: number) {
+  return Math.max(0, capacity - occupied);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -108,10 +128,15 @@ function text(value: unknown) {
   return value.trim();
 }
 
-function positiveInt(value: unknown) {
+function nonNegativeInt(value: unknown) {
   const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
-  if (!Number.isInteger(number) || number <= 0) return 0;
+  if (!Number.isInteger(number) || number < 0) return 0;
   return number;
+}
+
+function positiveInt(value: unknown) {
+  const number = nonNegativeInt(value);
+  return number > 0 ? number : 0;
 }
 
 function houseFrom(value: unknown): House | null {
@@ -123,7 +148,7 @@ function houseFrom(value: unknown): House | null {
 function firstText(record: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = text(record[key]);
-    if (value) return value;
+    if (value && value !== "null") return value;
   }
   return "";
 }
@@ -156,15 +181,45 @@ function occupantFrom(value: unknown): Occupant | null {
     "admittedAt",
     "admitted_at",
   ]).slice(0, 10);
-  const occupiedFlag = record.occupied ?? record.vacant;
-  if (occupiedFlag === false || record.vacant === true || record.status === "vacant") return null;
+  if (record.occupied === false || record.vacant === true || record.status === "vacant") return null;
   if (!patientName && !clientId) return null;
   return { patientName, clientId, admissionDate };
 }
 
-function occupantsFrom(value: unknown): Occupant[] {
+function bedFrom(value: unknown): ParsedBed {
+  if (value == null) return { id: "", label: "", occupant: null };
+  const record = asRecord(value);
+  if (!record) return { id: "", label: "", occupant: null };
+  if ("patient" in record) {
+    return {
+      id: text(record.id),
+      label: text(record.name),
+      occupant: record.patient == null ? null : occupantFrom(record.patient),
+    };
+  }
+  if (record.occupied === false || record.vacant === true) {
+    return { id: text(record.id), label: text(record.name), occupant: null };
+  }
+  return { id: text(record.id), label: "", occupant: occupantFrom(record) };
+}
+
+function bedsFrom(record: Record<string, unknown>): ParsedBed[] {
+  if (Array.isArray(record.beds)) return record.beds.map(bedFrom);
+  const list = record.occupants ?? record.patients ?? record.residents;
+  if (!Array.isArray(list)) return [];
+  return list.map(bedFrom);
+}
+
+function unassignedFrom(value: unknown): Occupant[] {
+  if (typeof value === "number" || (typeof value === "string" && value.trim())) {
+    const count = nonNegativeInt(value);
+    return Array.from({ length: count }, () => ({ patientName: "", clientId: "", admissionDate: "" }));
+  }
   if (!Array.isArray(value)) return [];
-  return value.map(occupantFrom).filter((occupant): occupant is Occupant => Boolean(occupant));
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    return [occupantFrom(item) ?? { patientName: "", clientId: "", admissionDate: "" }];
+  });
 }
 
 function roomFrom(value: unknown): ParsedRoom | null {
@@ -172,17 +227,16 @@ function roomFrom(value: unknown): ParsedRoom | null {
   if (!record) return null;
   const name = firstText(record, ["name", "room", "roomName", "room_name"]);
   if (!name) return null;
-  const numericBeds = typeof record.beds === "number" ? record.beds : 0;
-  const occupants = occupantsFrom(
-    Array.isArray(record.beds) ? record.beds : (record.occupants ?? record.patients ?? record.residents),
-  );
+  const beds = bedsFrom(record);
   const capacity =
     positiveInt(record.capacity) ||
     positiveInt(record.bedCount) ||
     positiveInt(record.bed_count) ||
-    positiveInt(numericBeds) ||
-    occupants.length;
-  return { name, capacity, occupants };
+    (typeof record.beds === "number" ? positiveInt(record.beds) : 0) ||
+    beds.length ||
+    1;
+  while (beds.length < capacity) beds.push({ id: "", label: "", occupant: null });
+  return { name, capacity: Math.max(capacity, beds.length), beds };
 }
 
 function housePayload(value: unknown): ParsedHouse | null {
@@ -190,7 +244,12 @@ function housePayload(value: unknown): ParsedHouse | null {
   if (!record) return null;
   const roomsValue = record.rooms ?? record.roomList ?? record.room_list;
   if (!Array.isArray(roomsValue)) return null;
-  return { rooms: roomsValue.map(roomFrom).filter((room): room is ParsedRoom => Boolean(room)) };
+  const rooms = roomsValue.flatMap((room) => {
+    const parsed = roomFrom(room);
+    return parsed ? [parsed] : [];
+  });
+  const capacity = positiveInt(record.capacity) || rooms.reduce((sum, room) => sum + room.capacity, 0);
+  return { capacity, unassigned: unassignedFrom(record.unassigned), rooms };
 }
 
 function takeHouse(target: Partial<Record<House, ParsedHouse>>, key: unknown, value: unknown) {
@@ -201,12 +260,13 @@ function takeHouse(target: Partial<Record<House, ParsedHouse>>, key: unknown, va
 }
 
 /**
- * Normalize Within's occupancy JSON into per-house rooms.
- * Returns null when the payload is not a census, so a bad body cannot replace the last sync.
+ * Normalize Within's occupancy JSON.
+ * Returns null when the body is not a census, so a bad response cannot replace the last sync.
  */
-export function adaptOccupancy(payload: unknown): Partial<Record<House, ParsedHouse>> | null {
+export function adaptOccupancy(payload: unknown): AdaptedOccupancy | null {
   const root = asRecord(payload);
   if (!root) return null;
+  if (root.ok === false) return null;
   const houses: Partial<Record<House, ParsedHouse>> = {};
 
   const list = root.houses ?? root.facilities ?? root.occupancy;
@@ -228,33 +288,78 @@ export function adaptOccupancy(payload: unknown): Partial<Record<House, ParsedHo
   }
 
   if (!houses.manor && !houses.lodge) return null;
-  return houses;
+  const asOf = firstText(root, ["asOf", "as_of", "syncedAt", "synced_at"]);
+  return { asOf, houses };
 }
 
-function readCache(): CachedCensus | null {
-  const row = getDb()
-    .prepare(`SELECT payload_json, synced_at FROM occupancy_sync WHERE id = ?`)
-    .get(CACHE_ID) as { payload_json: string; synced_at: string } | undefined;
-  if (!row) return null;
+function toPayload(census: AdaptedOccupancy) {
+  const houses = (["manor", "lodge"] as const).flatMap((house) => {
+    const parsed = census.houses[house];
+    if (!parsed) return [];
+    const bedOccupied = parsed.rooms.reduce(
+      (sum, room) => sum + room.beds.filter((bed) => bed.occupant).length,
+      0,
+    );
+    return [
+      {
+        house: house === "manor" ? "weltevreden_manor" : "liberty_lodge",
+        capacity: parsed.capacity,
+        occupied: bedOccupied,
+        available: bedsAvailable(parsed.capacity, bedOccupied),
+        unassigned: parsed.unassigned.map((person) => ({
+          name: person.patientName,
+          clientId: person.clientId,
+          admissionDate: person.admissionDate || null,
+        })),
+        rooms: parsed.rooms.map((room) => ({
+          name: room.name,
+          capacity: room.capacity,
+          beds: room.beds.map((bed) => ({
+            id: bed.id,
+            name: bed.label,
+            occupied: Boolean(bed.occupant),
+            patient: bed.occupant
+              ? {
+                  name: bed.occupant.patientName,
+                  clientId: bed.occupant.clientId,
+                  admissionDate: bed.occupant.admissionDate || null,
+                }
+              : null,
+          })),
+        })),
+      },
+    ];
+  });
+  return { ok: true, asOf: census.asOf, houses };
+}
+
+function readCache(): (AdaptedOccupancy & { syncedAt: string }) | null {
   try {
-    const houses = adaptOccupancy(JSON.parse(row.payload_json));
-    if (!houses) return null;
-    return { syncedAt: row.synced_at, houses };
+    const row = getDb()
+      .prepare(`SELECT payload_json, synced_at FROM occupancy_sync WHERE id = ?`)
+      .get(CACHE_ID) as { payload_json: string; synced_at: string } | undefined;
+    if (!row) return null;
+    const census = adaptOccupancy(JSON.parse(row.payload_json));
+    if (!census) return null;
+    return { ...census, syncedAt: row.synced_at };
   } catch {
     return null;
   }
 }
 
-function writeCache(houses: Partial<Record<House, ParsedHouse>>, syncedAt: string) {
+function writeCache(census: AdaptedOccupancy, syncedAt: string) {
   const previous = readCache();
-  const merged: Partial<Record<House, ParsedHouse>> = { ...previous?.houses, ...houses };
+  const merged: AdaptedOccupancy = {
+    asOf: census.asOf || previous?.asOf || syncedAt,
+    houses: { ...previous?.houses, ...census.houses },
+  };
   getDb()
     .prepare(
       `INSERT INTO occupancy_sync (id, payload_json, synced_at)
        VALUES (?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, synced_at = excluded.synced_at`,
     )
-    .run(CACHE_ID, JSON.stringify({ houses: merged }), syncedAt);
+    .run(CACHE_ID, JSON.stringify(toPayload(merged)), syncedAt);
 }
 
 export function clearOccupancyCache() {
@@ -263,6 +368,10 @@ export function clearOccupancyCache() {
 
 function normalizeName(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function emptyBed(status: BedSlot["status"]): BedSlot {
+  return { id: "", label: "", status, patientName: "", clientId: "", admissionDate: "", reachPersonId: "" };
 }
 
 function presentRooms(house: House, parsed: ParsedHouse | undefined, known: boolean): OccupancyRoomView[] {
@@ -274,46 +383,48 @@ function presentRooms(house: House, parsed: ParsedHouse | undefined, known: bool
   const rooms = catalog.map((entry) => {
     const match = incoming.get(normalizeName(entry.name));
     if (match) used.add(normalizeName(match.name));
-    return roomView(entry.name, match?.capacity || entry.capacity, match?.occupants ?? [], known);
+    return roomView(entry.name, match, entry.capacity, known);
   });
 
   for (const room of parsed?.rooms ?? []) {
     const key = normalizeName(room.name);
     if (used.has(key)) continue;
-    used.add(key);
-    rooms.push(roomView(room.name, room.capacity || room.occupants.length || 1, room.occupants, known));
+    rooms.push(roomView(room.name, room, room.capacity, known));
   }
   return rooms;
 }
 
-function roomView(name: string, capacity: number, occupants: Occupant[], known: boolean): OccupancyRoomView {
-  const size = Math.max(capacity, occupants.length, 1);
-  const beds: BedSlot[] = occupants.slice(0, size).map((occupant) => ({
-    status: "occupied",
-    patientName: occupant.patientName || "Occupied",
-    clientId: occupant.clientId,
-    admissionDate: occupant.admissionDate,
-    reachPersonId: "",
-  }));
-  while (beds.length < size) {
-    beds.push({
-      status: known ? "vacant" : "unknown",
-      patientName: "",
-      clientId: "",
-      admissionDate: "",
-      reachPersonId: "",
-    });
-  }
-  return { name, capacity: size, occupied: beds.filter((bed) => bed.status === "occupied").length, beds };
+function roomView(name: string, parsed: ParsedRoom | undefined, fallbackCapacity: number, known: boolean): OccupancyRoomView {
+  const capacity = parsed?.capacity || fallbackCapacity || 1;
+  const source = parsed?.beds ?? [];
+  const beds: BedSlot[] = source.map((bed) =>
+    bed.occupant
+      ? {
+          id: bed.id,
+          label: bed.label,
+          status: "occupied",
+          patientName: bed.occupant.patientName || "Occupied",
+          clientId: bed.occupant.clientId,
+          admissionDate: bed.occupant.admissionDate,
+          reachPersonId: "",
+        }
+      : { ...emptyBed(known ? "vacant" : "unknown"), id: bed.id, label: bed.label },
+  );
+  while (beds.length < capacity) beds.push(emptyBed(known ? "vacant" : "unknown"));
+  return {
+    name,
+    capacity: Math.max(capacity, beds.length),
+    occupied: beds.filter((bed) => bed.status === "occupied").length,
+    beds,
+  };
 }
 
-function linkReachPeople(view: HouseOccupancyView) {
-  for (const room of view.rooms) {
-    for (const bed of room.beds) {
-      if (!bed.clientId) continue;
-      const person = findPersonByWithinClientId(bed.clientId);
-      if (person) bed.reachPersonId = person.id;
-    }
+function reachPersonId(clientId: string) {
+  if (!clientId) return "";
+  try {
+    return findPersonByWithinClientId(clientId)?.id ?? "";
+  } catch {
+    return "";
   }
 }
 
@@ -323,10 +434,25 @@ function viewFor(
   options: { syncedAt: string; live: boolean; unreachable: boolean; known: boolean },
 ): HouseOccupancyView {
   const rooms = presentRooms(house, parsed, options.known);
+  const bedOccupied = rooms.reduce((sum, room) => sum + room.occupied, 0);
+  const unassigned = (options.known ? (parsed?.unassigned ?? []) : []).map((person) => ({
+    patientName: person.patientName,
+    clientId: person.clientId,
+    admissionDate: person.admissionDate,
+    reachPersonId: reachPersonId(person.clientId),
+  }));
+  const capacity = options.known
+    ? parsed?.capacity || rooms.reduce((sum, room) => sum + room.capacity, 0)
+    : rooms.reduce((sum, room) => sum + room.capacity, 0);
+  const occupied = options.known ? bedOccupied + unassigned.length : 0;
   const view: HouseOccupancyView = {
     house,
-    capacity: rooms.reduce((sum, room) => sum + room.capacity, 0),
-    occupied: rooms.reduce((sum, room) => sum + room.occupied, 0),
+    capacity,
+    occupied,
+    bedOccupied: options.known ? bedOccupied : 0,
+    available: options.known ? bedsAvailable(capacity, occupied) : 0,
+    unassignedCount: unassigned.length,
+    unassigned,
     rooms,
     syncedAt: options.syncedAt,
     syncedAtLabel: options.syncedAt ? formatSentAt(options.syncedAt) : "",
@@ -334,8 +460,16 @@ function viewFor(
     unreachable: options.unreachable,
     known: options.known,
   };
-  if (options.known) linkReachPeople(view);
+  if (options.known) {
+    for (const room of view.rooms) {
+      for (const bed of room.beds) bed.reachPersonId = reachPersonId(bed.clientId);
+    }
+  }
   return view;
+}
+
+function unavailable(house: House): HouseOccupancyView {
+  return viewFor(house, undefined, { syncedAt: "", live: false, unreachable: true, known: false });
 }
 
 export async function readHouseOccupancy(
@@ -354,38 +488,41 @@ export async function readHouseOccupancy(
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${secret}`,
+        "X-Reach-Handoff-Secret": secret,
       },
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) throw new Error(`status ${response.status}`);
     const payload: unknown = await response.json();
-    const houses = adaptOccupancy(payload);
-    if (!houses) throw new Error("unrecognized occupancy");
-    const syncedAt = now.toISOString();
-    writeCache(houses, syncedAt);
-    const cached = readCache();
-    return viewFor(house, cached?.houses[house] ?? houses[house], {
+    const census = adaptOccupancy(payload);
+    if (!census) throw new Error("unrecognized occupancy");
+    const syncedAt = census.asOf || now.toISOString();
+    try {
+      writeCache({ ...census, asOf: syncedAt }, syncedAt);
+    } catch {
+      // A cache miss must not hide a live census.
+    }
+    return viewFor(house, census.houses[house], {
       syncedAt,
       live: true,
       unreachable: false,
       known: true,
     });
   } catch {
-    const cached = readCache();
-    if (cached?.houses[house]) {
-      return viewFor(house, cached.houses[house], {
-        syncedAt: cached.syncedAt,
-        live: false,
-        unreachable: true,
-        known: true,
-      });
+    try {
+      const cached = readCache();
+      if (cached?.houses[house]) {
+        return viewFor(house, cached.houses[house], {
+          syncedAt: cached.asOf || cached.syncedAt,
+          live: false,
+          unreachable: true,
+          known: true,
+        });
+      }
+    } catch {
+      return unavailable(house);
     }
-    return viewFor(house, undefined, {
-      syncedAt: "",
-      live: false,
-      unreachable: true,
-      known: false,
-    });
+    return unavailable(house);
   }
 }
