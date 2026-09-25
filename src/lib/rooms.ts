@@ -1,6 +1,6 @@
 import { getDb } from "./db";
-import { roomsFor, roomId } from "./houses";
-import { roomOccupant } from "./people";
+import { roomOccupants } from "./people";
+import { syncRoomCatalog } from "./room-catalog";
 import type { House, Person, Room } from "./types";
 
 export function listRooms(house: House): Room[] {
@@ -22,22 +22,18 @@ export function findRoomByName(house: House, name: string): Room | null {
 }
 
 export function ensureRooms() {
-  const db = getDb();
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO rooms (id, house, name, sort_order) VALUES (?, ?, ?, ?)`,
-  );
-  for (const house of ["manor", "lodge"] as House[]) {
-    roomsFor(house).forEach((name, index) => {
-      insert.run(roomId(house, name), house, name, index);
-    });
-  }
+  syncRoomCatalog(getDb());
 }
 
-export type RoomCard = Room & { occupant: Person | null };
+export type RoomCard = Room & { occupants: Person[]; occupant: Person | null };
 
 export function houseBoard(house: House): RoomCard[] {
-  return listRooms(house).map((room) => ({
-    ...room,
-    occupant: roomOccupant(room.id),
-  }));
+  return listRooms(house).map((room) => {
+    const occupants = roomOccupants(room.id);
+    return {
+      ...room,
+      occupants,
+      occupant: occupants[0] ?? null,
+    };
+  });
 }

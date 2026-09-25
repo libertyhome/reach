@@ -11,7 +11,7 @@ export function AdmitConfirm({ person, staff }: { person: Person; staff: User[] 
   const preferredVacant =
     person.preferred_room_id &&
     HOUSES.some((house) =>
-      houseBoard(house).some((room) => room.id === person.preferred_room_id && !room.occupant),
+      houseBoard(house).some((room) => room.id === person.preferred_room_id && room.occupants.length < (room.capacity || 1)),
     )
       ? person.preferred_room_id
       : "";
@@ -43,7 +43,7 @@ export function AdmitConfirm({ person, staff }: { person: Person; staff: User[] 
           </option>
           {HOUSES.flatMap((house) =>
             houseBoard(house)
-              .filter((room) => !room.occupant)
+              .filter((room) => room.occupants.length < (room.capacity || 1))
               .map((room) => (
                 <option key={room.id} value={room.id}>
                   {HOUSE_SHORT[house]} · {room.name}

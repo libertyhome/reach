@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { syncRoomCatalog } from "./room-catalog";
 
 /**
  * Copy the old overnight-supervision flag onto detox/overnight supervision.
@@ -35,6 +36,7 @@ export function migrate(db: Database.Database) {
       house TEXT NOT NULL,
       name TEXT NOT NULL,
       sort_order INTEGER NOT NULL,
+      capacity INTEGER NOT NULL DEFAULT 1,
       UNIQUE (house, name)
     );
 
@@ -429,5 +431,13 @@ export function migrate(db: Database.Database) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_accounting_sync_log_created ON accounting_sync_log(created_at);
+
+    CREATE TABLE IF NOT EXISTS occupancy_sync (
+      id TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL,
+      synced_at TEXT NOT NULL
+    );
   `);
+
+  syncRoomCatalog(db);
 }

@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import type { House, Person, Stage } from "./types";
+import type { House, Person, Room, Stage } from "./types";
 
 const PERSON_COLUMNS = `
   id, first_name, last_name, preferred_name, email, phone, enquiry_date,
@@ -230,17 +230,36 @@ export function replacePerson(person: Person) {
     .run(row);
 }
 
+export function roomOccupants(roomId: string): Person[] {
+  if (!roomId) return [];
+  return getDb()
+    .prepare(
+      `SELECT * FROM people
+       WHERE room_id = ? AND stage = 'resident' AND archived_at = ''
+       ORDER BY last_name ASC, first_name ASC`,
+    )
+    .all(roomId) as Person[];
+}
+
 export function roomOccupant(roomId: string): Person | null {
-  if (!roomId) return null;
-  return (
-    (getDb()
-      .prepare(
-        `SELECT * FROM people
-         WHERE room_id = ? AND stage = 'resident' AND archived_at = ''
-         LIMIT 1`,
-      )
-      .get(roomId) as Person | undefined) ?? null
-  );
+  return roomOccupants(roomId)[0] ?? null;
+}
+
+export function roomHasSpace(room: Pick<Room, "id" | "capacity">, exceptPersonId = "") {
+  const others = roomOccupants(room.id).filter((person) => person.id !== exceptPersonId);
+  return others.length < Math.max(1, room.capacity || 1);
+}
+
+export function findPersonByWithinClientId(clientId: string): Person | null {
+  const id = clientId.trim();
+  if (!id) return null;
+  const byWithin =
+    (getDb().prepare(`SELECT * FROM people WHERE within_client_id = ? AND archived_at = '' LIMIT 1`).get(id) as
+      | Person
+      | undefined) ?? null;
+  if (byWithin) return byWithin;
+  const byReach = getPerson(id);
+  return byReach && !byReach.archived_at ? byReach : null;
 }
 
 export function occupancyCounts() {

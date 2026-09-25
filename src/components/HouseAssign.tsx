@@ -44,7 +44,7 @@ export function HouseAssign({ person }: { person: Person }) {
               houseBoard(house).map((room) => (
                 <option key={room.id} value={room.id}>
                   {HOUSE_SHORT[house]} · {room.name}
-                  {room.occupant ? " (currently occupied)" : ""}
+                  {room.occupants.length ? ` (${room.occupants.length}/${room.capacity || 1})` : ""}
                 </option>
               )),
             )}
@@ -74,7 +74,10 @@ export function HouseAssign({ person }: { person: Person }) {
       <input type="hidden" name="id" value={person.id} />
       <input type="hidden" name="mode" value="confirmed" />
       <h2 className="serif text-2xl text-sage-deep">House and room</h2>
-      <p className="text-sm text-muted">Confirmed assignment for a resident. Undoable. A room cannot be given to two people.</p>
+      <p className="text-sm text-muted">
+        Confirmed assignment for a resident. Undoable. A room holds as many people as it has beds. Manor and Lodge stay
+        separate. Who is in each bed on the house board comes from Within.
+      </p>
       <label className="block">
         <span className="text-sm font-medium">House</span>
         <select name="house" defaultValue={person.house} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3">
@@ -91,12 +94,16 @@ export function HouseAssign({ person }: { person: Person }) {
         <select name="room_id" defaultValue={person.room_id} className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3">
           <option value="">No room yet</option>
           {HOUSES.flatMap((house) =>
-            houseBoard(house).map((room) => (
-              <option key={room.id} value={room.id} disabled={Boolean(room.occupant && room.occupant.id !== person.id)}>
-                {HOUSE_SHORT[house]} · {room.name}
-                {room.occupant && room.occupant.id !== person.id ? " (occupied)" : ""}
-              </option>
-            )),
+            houseBoard(house).map((room) => {
+              const others = room.occupants.filter((occupant) => occupant.id !== person.id).length;
+              const full = others >= (room.capacity || 1);
+              return (
+                <option key={room.id} value={room.id} disabled={full}>
+                  {HOUSE_SHORT[house]} · {room.name}
+                  {full ? " (full)" : room.occupants.length ? ` (${room.occupants.length}/${room.capacity || 1})` : ""}
+                </option>
+              );
+            }),
           )}
         </select>
       </label>

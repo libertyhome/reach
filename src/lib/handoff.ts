@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { withinDocumentManifest } from "./documents";
 import { HOUSE_LABEL } from "./labels";
 import { programPhaseFor } from "./occupancy";
@@ -67,6 +67,21 @@ export type HandoffClaims = {
 
 export function handoffSecret() {
   return process.env.REACH_WITHIN_HANDOFF_SECRET || DEMO_HANDOFF_SECRET;
+}
+
+function secretsMatch(left: string, right: string) {
+  const a = createHash("sha256").update(left).digest();
+  const b = createHash("sha256").update(right).digest();
+  return timingSafeEqual(a, b);
+}
+
+/** Same secret as Send to Within: Authorization Bearer, or X-Reach-Handoff-Secret. */
+export function requestHasHandoffSecret(request: Request, secret = handoffSecret()) {
+  const bearer = request.headers.get("authorization") || "";
+  const header = request.headers.get("x-reach-handoff-secret") || "";
+  const token = bearer.toLowerCase().startsWith("bearer ") ? bearer.slice(7).trim() : header.trim();
+  if (!token || !secret) return false;
+  return secretsMatch(token, secret);
 }
 
 export function withinBaseUrl() {

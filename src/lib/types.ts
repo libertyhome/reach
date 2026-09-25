@@ -143,6 +143,7 @@ export type Room = {
   house: House;
   name: string;
   sort_order: number;
+  capacity: number;
 };
 
 export type Person = {
