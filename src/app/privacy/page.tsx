@@ -10,7 +10,7 @@ export default function PrivacyPage() {
       <h1 className="serif mt-2 text-4xl text-sage-deep">Privacy notice for enquiries</h1>
       <div className="mt-6 space-y-4 text-sm leading-relaxed">
         <p>
-          Liberty Home Addiction Care, in Cape Town, uses Reach to handle commercial enquiries for Weltevreden Manor
+          Liberty Home, in Cape Town, uses Reach to handle commercial enquiries for Weltevreden Manor
           and Liberty Lodge. This notice covers the contact form and advertising lead forms. Clinical records stay in
           Within after someone is admitted, and are not collected on this form.
         </p>

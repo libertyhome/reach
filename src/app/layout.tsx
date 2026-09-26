@@ -15,7 +15,7 @@ const sourceSans = Source_Sans_3({
 export const metadata: Metadata = {
   title: "Reach — Liberty Home",
   description:
-    "Reach is Liberty Home Addiction Care’s commercial enquiry CRM for Weltevreden Manor and Liberty Lodge.",
+    "Reach is Liberty Home’s commercial enquiry CRM for Weltevreden Manor and Liberty Lodge.",
 };
 
 export const viewport: Viewport = {
