@@ -1,6 +1,9 @@
 import assert from "assert";
 import { execSync } from "child_process";
+import { mkdtempSync } from "fs";
 import http from "http";
+import { tmpdir } from "os";
+import path from "path";
 import {
   type AccountingConnector,
   LIBERTY_TENANT,
@@ -57,6 +60,10 @@ import {
   sentStatusLine,
 } from "../src/lib/within-send";
 
+// Own database: seed no longer rewrites passwords, so a db left by `next build` must not leak in.
+// Demo login stays on here so the fixture staff still sign in with the demo password.
+process.env.REACH_DB_PATH = path.join(mkdtempSync(path.join(tmpdir(), "reach-qa-")), "reach.db");
+process.env.REACH_DEMO_LOGIN = "true";
 getDb();
 seed();
 {

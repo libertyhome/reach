@@ -2,43 +2,50 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { loginAction } from "@/app/actions";
+import type { LoginAccount } from "@/lib/demo-login";
 
-const DEMO_ACCOUNTS = [
-  { role: "Admissions", email: "admissions@liberty.local" },
-  { role: "Accounts", email: "accounts@liberty.local" },
-  { role: "Therapist", email: "therapist@liberty.local" },
-] as const;
-
-export function LoginForm({ nextPath = "" }: { nextPath?: string }) {
+export function LoginForm({
+  nextPath = "",
+  quickPicks = [],
+  prefillEmail = "",
+  prefillPassword = "",
+}: {
+  nextPath?: string;
+  quickPicks?: LoginAccount[];
+  prefillEmail?: string;
+  prefillPassword?: string;
+}) {
   const [state, action, pending] = useActionState(loginAction, null);
-  const [email, setEmail] = useState("admissions@liberty.local");
+  const [email, setEmail] = useState(prefillEmail);
+  const quickKey = quickPicks.map((account) => account.email).join(",");
 
   useEffect(() => {
-    // Prefer Accounts when the return URL looks commercial (approval / admit checklist).
-    if (typeof window === "undefined") return;
+    if (!quickKey) return;
     const next = nextPath || new URLSearchParams(window.location.search).get("next") || "";
-    if (next.includes("approval") || next.includes("accounts")) {
-      setEmail("accounts@liberty.local");
-    }
-  }, [nextPath]);
+    if (!next.includes("approval") && !next.includes("accounts")) return;
+    const accountsEmail = quickKey.split(",").find((value) => value.startsWith("accounts@"));
+    if (accountsEmail) setEmail(accountsEmail);
+  }, [nextPath, quickKey]);
 
   return (
     <form action={action} className="mt-8 space-y-4 rounded-3xl border border-line bg-paper p-6">
       <input type="hidden" name="next" value={nextPath} />
-      <div className="flex flex-wrap gap-2">
-        {DEMO_ACCOUNTS.map((account) => (
-          <button
-            key={account.email}
-            type="button"
-            onClick={() => setEmail(account.email)}
-            className={`min-h-10 rounded-full border px-3 text-xs ${
-              email === account.email ? "border-sage bg-sage text-paper" : "border-line"
-            }`}
-          >
-            {account.role}
-          </button>
-        ))}
-      </div>
+      {quickPicks.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {quickPicks.map((account) => (
+            <button
+              key={account.email}
+              type="button"
+              onClick={() => setEmail(account.email)}
+              className={`min-h-10 rounded-full border px-3 text-xs ${
+                email === account.email ? "border-sage bg-sage text-paper" : "border-line"
+              }`}
+            >
+              {account.role}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <label className="block">
         <span className="text-sm font-medium">Staff email</span>
         <input
@@ -57,7 +64,7 @@ export function LoginForm({ nextPath = "" }: { nextPath?: string }) {
           name="password"
           type="password"
           required
-          defaultValue="liberty"
+          defaultValue={prefillPassword}
           autoComplete="current-password"
           className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3"
         />
