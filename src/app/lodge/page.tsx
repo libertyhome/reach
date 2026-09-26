@@ -14,7 +14,7 @@ export default async function LodgePage({
   return (
     <AppShell user={user} current="/lodge">
       <UndoBar eventId={params.undo} notice={params.notice} />
-      <HouseBoardView board={await readHouseOccupancy("lodge")} />
+      <HouseBoardView board={await readHouseOccupancy("lodge")} exportHref="/export/lodge" />
     </AppShell>
   );
 }

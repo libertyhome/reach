@@ -24,6 +24,7 @@ export default async function EnquiriesPage({
         empty="No open enquiries. Log one when the phone or website comes in."
         actionHref="/enquiries/new"
         actionLabel="New enquiry"
+        exportHref="/export/enquiries"
       />
     </AppShell>
   );

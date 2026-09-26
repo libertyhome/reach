@@ -14,7 +14,7 @@ export default async function ManorPage({
   return (
     <AppShell user={user} current="/manor">
       <UndoBar eventId={params.undo} notice={params.notice} />
-      <HouseBoardView board={await readHouseOccupancy("manor")} />
+      <HouseBoardView board={await readHouseOccupancy("manor")} exportHref="/export/manor" />
     </AppShell>
   );
 }

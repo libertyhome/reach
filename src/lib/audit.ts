@@ -45,6 +45,45 @@ export function writeAudit(input: {
   return event;
 }
 
+/** One audit row per spreadsheet download. Not undoable — there is no prior person state. */
+export function writeListExportAudit(input: {
+  list: string;
+  actorId: string;
+  filename: string;
+  rowCount: number;
+}) {
+  const event: AuditEvent = {
+    id: newId("aud"),
+    entity_type: "list",
+    entity_id: input.list,
+    action: "export",
+    summary: `Exported ${input.list} (${input.rowCount} ${input.rowCount === 1 ? "row" : "rows"}) as ${input.filename}`,
+    actor_id: input.actorId,
+    before_json: "null",
+    after_json: JSON.stringify({
+      list: input.list,
+      filename: input.filename,
+      rowCount: input.rowCount,
+    }),
+    undone: 0,
+    undone_at: "",
+    undo_of: "",
+    created_at: new Date().toISOString(),
+  };
+  getDb()
+    .prepare(
+      `INSERT INTO audit_events (
+        id, entity_type, entity_id, action, summary, actor_id,
+        before_json, after_json, undone, undone_at, undo_of, created_at
+      ) VALUES (
+        @id, @entity_type, @entity_id, @action, @summary, @actor_id,
+        @before_json, @after_json, @undone, @undone_at, @undo_of, @created_at
+      )`,
+    )
+    .run(event);
+  return event;
+}
+
 export function getAuditEvent(id: string): AuditEvent | null {
   return (
     (getDb().prepare(`SELECT * FROM audit_events WHERE id = ?`).get(id) as AuditEvent | undefined) ?? null
@@ -85,6 +124,9 @@ export function undoEvent(eventId: string, actorId: string) {
   if (!event) return { ok: false as const, error: "Nothing to undo." };
   if (event.undone) return { ok: false as const, error: "That change was already undone." };
   if (event.action === "undo") return { ok: false as const, error: "Cannot undo an undo record." };
+  if (event.entity_type !== "person" || event.action === "export") {
+    return { ok: false as const, error: "That record cannot be undone." };
+  }
   if (event.before_json === "null") return { ok: false as const, error: "That action has no prior state." };
 
   const before = JSON.parse(event.before_json) as Person;

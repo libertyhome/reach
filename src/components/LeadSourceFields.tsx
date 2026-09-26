@@ -8,10 +8,12 @@ export function LeadSourceFields({
   leadSource,
   leadSourceNote,
   leadSourceWho,
+  formId,
 }: {
   leadSource: string;
   leadSourceNote: string;
   leadSourceWho: string;
+  formId?: string;
 }) {
   const [source, setSource] = useState(leadSource);
   const [who, setWho] = useState(leadSourceWho);
@@ -22,6 +24,7 @@ export function LeadSourceFields({
       <label className="block">
         <span className="text-sm font-medium">Lead source</span>
         <select
+          form={formId}
           name="lead_source"
           required
           value={source}
@@ -42,6 +45,7 @@ export function LeadSourceFields({
         <label className="block">
           <span className="text-sm font-medium">Who?</span>
           <input
+            form={formId}
             name="lead_source_who"
             value={who}
             onChange={(event) => setWho(event.target.value)}
@@ -49,11 +53,12 @@ export function LeadSourceFields({
           />
         </label>
       ) : (
-        <input type="hidden" name="lead_source_who" value="" />
+        <input type="hidden" form={formId} name="lead_source_who" value="" />
       )}
       <label className="block">
         <span className="text-sm font-medium">Lead source note</span>
         <input
+          form={formId}
           name="lead_source_note"
           defaultValue={leadSourceNote}
           className="mt-1 min-h-12 w-full rounded-xl border border-line bg-linen px-3"

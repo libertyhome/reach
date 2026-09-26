@@ -22,6 +22,7 @@ export default async function AdmitPage({
         people={listPeopleByStage("admit")}
         highlightId={params.focus}
         empty="No one is waiting to be admitted."
+        exportHref="/export/admit"
       />
     </AppShell>
   );

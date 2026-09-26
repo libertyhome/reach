@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ExportExcelLink } from "@/components/ExportExcelLink";
 import type { InvoiceRequest, PaymentInvoiceRow } from "@/lib/finance-types";
 import { HOUSE_SHORT } from "@/lib/labels";
 
@@ -32,11 +33,14 @@ export function InvoicesBoard({
 }) {
   return (
     <>
-      <div>
-        <h1 className="serif text-4xl text-sage-deep">Invoices</h1>
-        <p className="mt-2 max-w-2xl text-muted">
-          Payments board. Raise Sage invoice from Accounts lands here as pending — Sage bot owns ledger posting.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="serif text-4xl text-sage-deep">Invoices</h1>
+          <p className="mt-2 max-w-2xl text-muted">
+            Payments board. Raise Sage invoice from Accounts lands here as pending — Sage bot owns ledger posting.
+          </p>
+        </div>
+        <ExportExcelLink href="/export/invoices" />
       </div>
 
       {recentRequests.length > 0 ? (

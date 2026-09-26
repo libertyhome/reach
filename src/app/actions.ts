@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { undoEvent } from "@/lib/audit";
 import { getCurrentUser, login, logout } from "@/lib/auth";
+import { buildCommercialDetailsPatch } from "@/lib/commercial-details";
 import { sendPersonToWithin } from "@/lib/within-send";
 import { deletePersonDocument, savePersonDocument } from "@/lib/documents";
 import { getPerson } from "@/lib/people";
@@ -16,23 +17,16 @@ import {
   saveRoomPreference,
   updateLeadSource,
   applyPersonPatch,
-  parseAddonDays,
-  parseDetoxDays,
 } from "@/lib/pipeline";
 import { PIPELINE_STAGES, isCurrentLeadSource, isLeadSource, isNotConvertedReason } from "@/lib/labels";
 import {
-  COMMERCIAL_ADDONS,
   COMMERCIAL_CHECKLIST,
   CONTACT_METHODS,
-  CURRENCIES,
   DOCUMENT_KINDS,
-  FUNDING_TYPES,
   HOUSES,
   TRANSFER_EXTENSION_STATUSES,
   type ContactMethod,
-  type Currency,
   type DocumentKind,
-  type FundingType,
   type House,
   type RoomPrivacy,
   type Stage,
@@ -115,73 +109,11 @@ export async function updateFieldsAction(formData: FormData) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const id = formString(formData, "id");
-  const funding = formString(formData, "funding_type") as FundingType;
-  const currency = formString(formData, "currency") as Currency;
-  const contact = formString(formData, "contact_method") as ContactMethod;
-  const pref = formString(formData, "house_preference");
-  const addonPatch = Object.fromEntries(
-    COMMERCIAL_ADDONS.map((item) => [item.key, formData.get(item.key) === "1" ? 1 : 0]),
-  );
-  const nursingOn = formData.get("addon_nursing_medical_admission") === "1";
-  const detoxOvernightOn = formData.get("addon_detox_overnight") === "1";
-  const nursingDays = nursingOn ? parseAddonDays(formString(formData, "addon_nursing_days")) : 0;
-  const detoxOvernightDays = detoxOvernightOn ? parseAddonDays(formString(formData, "addon_detox_overnight_days")) : 0;
-  if (nursingDays == null || detoxOvernightDays == null) {
-    redirect(`/people/${id}?error=${encodeURIComponent("Choose a number of days from 1 to 14, or leave days unset.")}`);
-  }
-  const reason = formString(formData, "not_converted_reason");
-  if (reason && !isNotConvertedReason(reason)) {
-    redirect(`/people/${id}?error=${encodeURIComponent("Choose a reason for not converting from the list.")}`);
-  }
-  const detoxOn = formData.get("detox_first") === "1";
-  let detoxDays = 0;
-  if (detoxOn) {
-    const parsed = parseDetoxDays(formString(formData, "expected_detox_nights"));
-    if (parsed == null) {
-      redirect(`/people/${id}?error=${encodeURIComponent("Choose how many detox days (1–5).")}`);
-    }
-    detoxDays = parsed;
-  }
+  const built = buildCommercialDetailsPatch(formData);
+  if (!built.ok) redirect(`/people/${id}?error=${encodeURIComponent(built.error)}`);
   const result = applyPersonPatch(
     id,
-    {
-      first_name: formString(formData, "first_name"),
-      last_name: formString(formData, "last_name"),
-      preferred_name: formString(formData, "preferred_name"),
-      caller_name: formString(formData, "caller_name"),
-      resident_name: formString(formData, "resident_name"),
-      email: formString(formData, "email"),
-      phone: formString(formData, "phone"),
-      contact_method: CONTACT_METHODS.includes(contact) ? contact : "",
-      assigned_to_user_id: formString(formData, "assigned_to_user_id"),
-      counsellor_user_id: formString(formData, "counsellor_user_id"),
-      referral_owner_user_id: formString(formData, "referral_owner_user_id"),
-      referrer_name: formString(formData, "referrer_name"),
-      referrer_contact_person: formString(formData, "referrer_contact_person"),
-      referrer_phone: formString(formData, "referrer_phone"),
-      next_of_kin_name: formString(formData, "next_of_kin_name"),
-      next_of_kin_phone: formString(formData, "next_of_kin_phone"),
-      arp_email: formString(formData, "arp_email"),
-      funding_type: FUNDING_TYPES.includes(funding) ? funding : "private",
-      funding_notes: formString(formData, "funding_notes"),
-      currency: CURRENCIES.includes(currency) ? currency : "ZAR",
-      expected_arrival: formString(formData, "expected_arrival"),
-      admission_date: formString(formData, "admission_date"),
-      planned_discharge_date: formString(formData, "planned_discharge_date"),
-      house_preference: pref === "manor" || pref === "lodge" || pref === "either" ? pref : "",
-      commercial_notes: formString(formData, "commercial_notes"),
-      not_converted_reason: isNotConvertedReason(reason) ? reason : "",
-      assessment_details: formString(formData, "assessment_details"),
-      assessment_notes: formString(formData, "assessment_notes"),
-      ...addonPatch,
-      addon_nursing_medical_admission: nursingOn ? 1 : 0,
-      addon_nursing_days: nursingDays,
-      addon_detox_overnight: detoxOvernightOn ? 1 : 0,
-      addon_detox_overnight_days: detoxOvernightDays,
-      ...(detoxOvernightOn ? {} : { addon_overnight_supervision: 0 }),
-      detox_first: detoxOn ? 1 : 0,
-      expected_detox_nights: detoxDays,
-    },
+    built.patch,
     user,
     "field_edit",
     `Updated commercial details — ${actorLabel(user.name)}`,

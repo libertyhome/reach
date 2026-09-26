@@ -20,6 +20,7 @@ export default async function ApprovalPage({
         people={listPeopleByStage("approval")}
         highlightId={params.focus}
         empty="No cards waiting on approval."
+        exportHref="/export/approval"
       />
     </AppShell>
   );

@@ -6,6 +6,23 @@ import { syncRoomCatalog } from "./room-catalog";
  * Does not change lead source, notes, or day counts. Safe to run more than once.
  * Turning the new add-on off also clears the old flag, so a later run does not turn it back on.
  */
+/**
+ * Nursing & medical admission is a single day. Collapse test rows that stored a longer count.
+ * Rows with the add-on off, or already at 0 or 1, are left alone. Safe to run more than once.
+ */
+export function clampNursingAddonDays(db: Database.Database) {
+  const columns = new Set(
+    (db.prepare(`PRAGMA table_info(people)`).all() as { name: string }[]).map((column) => column.name),
+  );
+  if (!columns.has("addon_nursing_medical_admission") || !columns.has("addon_nursing_days")) return;
+  db.prepare(
+    `UPDATE people
+     SET addon_nursing_days = 1
+     WHERE addon_nursing_medical_admission = 1
+       AND addon_nursing_days > 1`,
+  ).run();
+}
+
 export function mapOvernightSupervisionAddon(db: Database.Database) {
   const columns = new Set(
     (db.prepare(`PRAGMA table_info(people)`).all() as { name: string }[]).map((column) => column.name),
@@ -230,6 +247,7 @@ export function migrate(db: Database.Database) {
   }
 
   mapOvernightSupervisionAddon(db);
+  clampNursingAddonDays(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS person_documents (

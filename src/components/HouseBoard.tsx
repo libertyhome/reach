@@ -1,13 +1,15 @@
 import Link from "next/link";
+import { ExportExcelLink } from "@/components/ExportExcelLink";
 import { HOUSE_LABEL } from "@/lib/labels";
 import { unassignedNotice, type HouseOccupancyView } from "@/lib/within-occupancy";
 
-export function HouseBoardView({ board }: { board: HouseOccupancyView }) {
+export function HouseBoardView({ board, exportHref }: { board: HouseOccupancyView; exportHref: string }) {
   const houseLabel = board.house === "manor" ? "Manor" : "Lodge";
 
   return (
     <>
-      <div>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
         <h1 className="serif text-4xl text-sage-deep">
           {houseLabel} ({board.capacity})
         </h1>
@@ -50,6 +52,8 @@ export function HouseBoardView({ board }: { board: HouseOccupancyView }) {
             ) : null}
           </div>
         ) : null}
+        </div>
+        <ExportExcelLink href={exportHref} />
       </div>
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {board.rooms.map((room) => (
