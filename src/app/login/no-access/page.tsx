@@ -4,6 +4,8 @@ import { BrandMark } from "@/components/BrandMark";
 export const dynamic = "force-dynamic";
 
 const COPY: Record<string, string> = {
+  unlisted:
+    "You're signed in to Microsoft, but this account is not on the Reach staff list. Entra assignment is not enough — only the confirmed Liberty Home staff accounts can open Reach. Ask the executive desk.",
   unknown: "You're signed in to Microsoft, but you don't have access to Reach yet. Ask the executive desk.",
   disabled: "This Reach account is disabled. Ask the executive desk.",
   conflict: "This Microsoft account doesn't match the Reach staff record. Ask the executive desk.",

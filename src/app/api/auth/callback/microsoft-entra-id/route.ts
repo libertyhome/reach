@@ -10,7 +10,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function failureReason(reason: string) {
-  if (reason === "unknown" || reason === "disabled" || reason === "conflict" || reason === "mfa") return reason;
+  if (reason === "unknown" || reason === "unlisted" || reason === "disabled" || reason === "conflict" || reason === "mfa") {
+    return reason;
+  }
   return "verify";
 }
 

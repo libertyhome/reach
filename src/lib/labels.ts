@@ -116,6 +116,7 @@ export function leadSourceOptions(current: string): LeadSource[] {
 export const ROLE_LABEL: Record<Role, string> = {
   therapist: "Therapist",
   admissions: "Admissions",
+  admissions_manager: "Admissions manager",
   accounts: "Accounts",
   finance: "Finance",
   executive: "Executive",

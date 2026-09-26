@@ -80,6 +80,11 @@ export async function loginAction(_prev: { error?: string } | null, formData: Fo
       if (result.reason === "password_disabled") {
         return { error: "Password sign-in is turned off. Use Sign in with Microsoft." };
       }
+      if (result.reason === "breakglass_only") {
+        return {
+          error: "Password sign-in is only for Vincent and Morgane while Microsoft and passwords are both on. Use Sign in with Microsoft.",
+        };
+      }
       if (result.reason === "not_configured") {
         return { error: "Microsoft sign-in is not configured." };
       }

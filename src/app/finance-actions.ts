@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { canViewMoneyPages } from "@/lib/access";
 import { getCurrentUser } from "@/lib/auth";
 import {
   raiseSageInvoice,
@@ -21,9 +22,15 @@ function safeAccountsNext(value: string) {
   return value;
 }
 
-export async function raiseSageInvoiceAction(formData: FormData) {
+async function requireMoneyActor() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (!canViewMoneyPages(user)) redirect("/enquiries");
+  return user;
+}
+
+export async function raiseSageInvoiceAction(formData: FormData) {
+  const user = await requireMoneyActor();
   const personId = formString(formData, "personId");
   const notes = formString(formData, "notes");
   const next = safeAccountsNext(formString(formData, "next") || "/accounts");
@@ -48,8 +55,7 @@ export async function raiseSageInvoiceAction(formData: FormData) {
 }
 
 export async function batchRaiseSageInvoiceAction(formData: FormData) {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const user = await requireMoneyActor();
   const next = safeAccountsNext(formString(formData, "next") || "/accounts");
   const ids = formData.getAll("personIds").map((value) => String(value).trim()).filter(Boolean);
   if (ids.length === 0) {
@@ -75,8 +81,7 @@ export async function batchRaiseSageInvoiceAction(formData: FormData) {
 }
 
 export async function accountRenewalAction(formData: FormData) {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const user = await requireMoneyActor();
   const personId = formString(formData, "personId");
   const action = formString(formData, "renewalAction") as "remind" | "renewed" | "raise";
   const next = safeAccountsNext(formString(formData, "next") || "/accounts");
@@ -113,8 +118,7 @@ export async function accountRenewalAction(formData: FormData) {
 }
 
 export async function undoFinanceAction(formData: FormData) {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const user = await requireMoneyActor();
   const eventId = formString(formData, "eventId");
   const next = safeAccountsNext(formString(formData, "next") || "/accounts");
   const result = undoFinanceEvent(eventId, user.id);

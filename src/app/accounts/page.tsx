@@ -9,14 +9,14 @@ import {
   listSaSchemes,
 } from "@/lib/finance";
 import { ACCOUNT_GROUPS, type AccountGroup } from "@/lib/finance-types";
-import { requireStaff } from "@/lib/page-helpers";
+import { requireMoneyAccess } from "@/lib/page-helpers";
 
 export default async function AccountsPage({
   searchParams,
 }: {
   searchParams: Promise<{ group?: string; undo?: string; notice?: string }>;
 }) {
-  const user = await requireStaff();
+  const user = await requireMoneyAccess();
   const params = await searchParams;
   const groupRaw = params.group ?? "all";
   const group: AccountGroup | "all" = ACCOUNT_GROUPS.includes(groupRaw as AccountGroup)

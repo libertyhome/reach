@@ -7,7 +7,7 @@ Staff sign-in can stay on the demo password, or move to Microsoft Entra ID for t
 | `AUTH_PROVIDER` | What staff see |
 | --- | --- |
 | unset or `demo` | Email and password. The demo account list follows `REACH_DEMO_LOGIN` (on outside production when unset; off in production when unset). |
-| `both` | **Sign in with Microsoft** and the password form. No demo list and no prefilled password. |
+| `both` | **Sign in with Microsoft** and the password form. No demo list and no prefilled password. The password form accepts only Vincent and Morgane. |
 | `entra` | Microsoft only. The password form is hidden and `loginAction` refuses passwords. |
 
 `both` and `entra` do not fall open. If `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, or `AUTH_MICROSOFT_ENTRA_ID_ISSUER` is missing, or the issuer is not a single tenant (`…/<tenant-id>/v2.0`, not `common`), `/login` shows **Microsoft sign-in is not configured** and passwords are refused.
@@ -44,7 +44,28 @@ Single tenant, domain **libertyhomerehab.com**. Staff sign in with their `@liber
 
 Issuer: `https://login.microsoftonline.com/<tenant-id>/v2.0` for the libertyhomerehab.com tenant. `https://login.microsoftonline.com/libertyhomerehab.com/v2.0` is the same single-tenant issuer.
 
-The app uses the authorization-code flow with PKCE (`openid-client` v6), scopes `openid profile email`, and checks `iss`, `aud`, `tid`, `nonce`, and `exp`. The first successful sign-in stores the Microsoft `oid` on the matching staff row. Matching uses `oid`, then lowercased `preferred_username`, `email`, or `upn` against `users.email`. There is no automatic account creation. Addresses ending in `@liberty.local` are never matched. Unknown people see a page asking them to contact the executive desk.
+The app uses the authorization-code flow with PKCE (`openid-client` v6), scopes `openid profile email`, and checks `iss`, `aud`, `tid`, `nonce`, and `exp`. The first successful sign-in stores the Microsoft `oid` on the staff row.
+
+Matching is the work email, case-insensitive, and only `@libertyhomerehab.com`. `preferred_username`, `email`, and `upn` are all checked. Addresses ending in `@liberty.local` are never matched. Entra **Assignment required** still applies in the tenant. Reach then refuses anyone who is not on the confirmed staff list, with a page that says the account is not on that list.
+
+## Confirmed staff
+
+Only these eight people are provisioned. The role on the list is applied at sign-in. The display name is the ID token `name` as Microsoft sent it. The names below are the fallback when that claim is empty.
+
+| Email | Role | What they see |
+| --- | --- | --- |
+| vincent@libertyhomerehab.com | executive | Full Reach, including creditors and money pages. Local password while `AUTH_PROVIDER=both`. |
+| morgane@libertyhomerehab.com | executive | Same as Vincent, including the local password while `AUTH_PROVIDER=both`. |
+| mel@libertyhomerehab.com | executive | Full Reach. Microsoft only. |
+| sinead@libertyhomerehab.com | finance | Accounts, invoices, and creditors. |
+| jenna@libertyhomerehab.com | finance | Accounts, invoices, and creditors. |
+| mmapule@libertyhomerehab.com | admissions_manager | Admissions pipeline plus the Executive dashboard. Display name fallback **Mmapule Mohajane**. No creditors and no money pages. |
+| cindy@libertyhomerehab.com | admissions | Admissions pipeline only. Display name fallback **Cindy De Smidt**. No money pages. |
+| thembani@libertyhomerehab.com | admissions | House manager. Admissions pipeline only. No money pages. |
+
+`admissions_manager` does not see Staff admin or lead forms. Creditor pages, creditor server actions, creditor creates, updates, deletes, accounting pull, and the profit-and-loss strip all check the role on the server. Hiding the nav link is not the control.
+
+A new row gets a random password hash that cannot be used to sign in. Vincent and Morgane can be given a real password with `npm run user:set-password` after their row exists. That password works on `/login` only when `AUTH_PROVIDER=both`. `entra` refuses every password. `/login/emergency` is unchanged and still needs `REACH_BREAKGLASS_EMAIL` and `REACH_BREAKGLASS_PASSWORD_HASH`.
 
 ## Railway variable names
 
@@ -72,7 +93,7 @@ Paste only the printed line into `REACH_BREAKGLASS_PASSWORD_HASH`. `/login/emerg
 
 ## Staff
 
-Executive → **Staff** (`/staff`) adds a person (name, email, role), changes a role, disables sign-in, or unlinks Microsoft. New rows get a random password hash that cannot be used to sign in. Add real staff here before passwords are turned off, using their `@libertyhomerehab.com` email. Demo `@liberty.local` rows are kept for history; Microsoft cannot sign in as them.
+Executive → **Staff** (`/staff`) adds a person (name, email, role), changes a role, disables sign-in, or unlinks Microsoft. Microsoft sign-in still only succeeds for the eight confirmed emails. A row added here for anyone else does not grant Reach. Disabling one of the eight stops their sign-in. Demo `@liberty.local` rows are kept for history; Microsoft cannot sign in as them.
 
 `db:seed` never rewrites an existing staff password. While `AUTH_PROVIDER` is `both` or `entra`, it also does not insert missing demo staff. In `demo`, a missing staff row is created with the known password only when demo login is on; otherwise the new row gets a random password. Other demo data is unchanged. Passwords are set with `npm run user:set-password`. Password sign-in is limited to 5 failures per 15 minutes per address and email.
 
@@ -109,7 +130,7 @@ These keep their current checks when `AUTH_PROVIDER=entra`:
 ## Rollout
 
 1. **1 Oct:** `AUTH_PROVIDER=both`, break-glass variables set, `AUTH_REQUIRE_MFA` left unset. Staff can use Microsoft. Passwords still work. Security defaults stay on in Entra.
-2. **Before 1 Nov:** add real staff on `/staff` and confirm each person has linked Microsoft.
+2. **Before 1 Nov:** each of the eight staff signs in with Microsoft once so the row is provisioned and the `oid` is stored. Set Vincent and Morgane's local passwords if the trial still needs them.
 3. **1 Nov:** `AUTH_PROVIDER=entra` and rotate `REACH_SECRET`. Password sessions end. Staff sign in with Microsoft.
 
 Rollback: set `AUTH_PROVIDER` back to `both` (or `demo`) and redeploy. Break-glass keeps working in every mode once its variables are set.

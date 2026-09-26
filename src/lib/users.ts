@@ -1,6 +1,7 @@
 import { writeAudit } from "./audit";
 import { getDb } from "./db";
 import { hashPassword, newId, verifyPassword } from "./passwords";
+import { REACH_STAFF_DOMAIN, microsoftDisplayName, reachStaffByEmail, type ReachStaffGrant } from "./reach-staff";
 import { ROLES, type Role, type User } from "./types";
 
 type UserRow = {
@@ -129,8 +130,8 @@ export type MicrosoftLinkInput = {
 };
 
 export type MicrosoftLinkResult =
-  | { ok: true; user: User; linked: boolean }
-  | { ok: false; reason: "unknown" | "disabled" | "conflict" };
+  | { ok: true; user: User; linked: boolean; provisioned: boolean }
+  | { ok: false; reason: "unknown" | "unlisted" | "disabled" | "conflict" };
 
 function amrLabel(amr: string[]) {
   return amr.length ? amr.join(",") : "none";
@@ -167,109 +168,148 @@ function normalizeEmails(emails: string[]) {
   return usable;
 }
 
+function grantsFromEmails(emails: string[]) {
+  const grants: ReachStaffGrant[] = [];
+  for (const email of emails) {
+    const grant = reachStaffByEmail(email);
+    if (grant && !grants.some((item) => item.email === grant.email)) grants.push(grant);
+  }
+  return grants;
+}
+
+function refuseMicrosoft(input: {
+  reason: "unknown" | "unlisted" | "disabled" | "conflict";
+  entityId: string;
+  actorId: string;
+  summary: string;
+  amr: string[];
+  email: string;
+}): MicrosoftLinkResult {
+  auditMicrosoft({
+    entityId: input.entityId,
+    actorId: input.actorId,
+    summary: input.summary,
+    amr: input.amr,
+    email: input.email,
+  });
+  return { ok: false, reason: input.reason };
+}
+
+function provisionReachUser(grant: ReachStaffGrant, name: string) {
+  const { hash, salt } = hashPassword(newId("unusable"));
+  const id = newId("user");
+  const createdAt = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO users (id, email, name, role, password_hash, password_salt, created_at, auth_disabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+    )
+    .run(id, grant.email, name, grant.role, hash, salt, createdAt);
+  return findUserByEmail(grant.email);
+}
+
 /**
- * Match a Microsoft identity to an existing staff row.
- * oid wins. Otherwise the first lowercased preferred_username, email, or upn that equals users.email.
- * @liberty.local rows are never matched. Nothing is created automatically.
+ * Provision or link a Microsoft identity from the confirmed @libertyhomerehab.com staff list.
+ * Email match is case-insensitive. Anyone else in the tenant is refused.
+ * The ID token name is stored as Microsoft sent it. The directory name is only a fallback.
+ * The confirmed role is applied on every successful sign-in.
  */
 export function linkMicrosoftSignIn(input: MicrosoftLinkInput): MicrosoftLinkResult {
   const oid = input.oid.trim();
   const amr = input.amr;
   const emails = normalizeEmails(input.emails);
+  const microsoftName = (input.name || "").replace(/\s+/g, " ").trim();
   if (!oid) {
-    auditMicrosoft({
+    return refuseMicrosoft({
+      reason: "unknown",
       entityId: "microsoft",
       actorId: "microsoft",
       summary: `Microsoft sign-in refused (missing oid). amr: ${amrLabel(amr)}`,
       amr,
       email: emails[0] || "",
     });
-    return { ok: false, reason: "unknown" };
+  }
+
+  const grants = grantsFromEmails(emails);
+  if (grants.length > 1) {
+    return refuseMicrosoft({
+      reason: "conflict",
+      entityId: oid,
+      actorId: "microsoft",
+      summary: `Microsoft sign-in refused (claims matched more than one Reach staff email). amr: ${amrLabel(amr)}`,
+      amr,
+      email: emails[0] || "",
+    });
   }
 
   const byOid = findUserByOid(oid);
-  if (byOid) {
-    if (byOid.auth_disabled) {
-      auditMicrosoft({
-        entityId: byOid.id,
-        actorId: byOid.id,
-        summary: `Microsoft sign-in refused (disabled). amr: ${amrLabel(amr)}`,
-        amr,
-        email: byOid.email,
-      });
-      return { ok: false, reason: "disabled" };
-    }
-    touchLastLogin(byOid.id);
-    auditMicrosoft({
+  let grant: ReachStaffGrant | null = grants[0] ?? null;
+  if (!grant && byOid) grant = reachStaffByEmail(byOid.email);
+  if (!grant) {
+    const workEmail = emails.some((email) => email.endsWith(`@${REACH_STAFF_DOMAIN}`));
+    return refuseMicrosoft({
+      reason: workEmail || byOid ? "unlisted" : "unknown",
+      entityId: byOid?.id || oid,
+      actorId: byOid?.id || "microsoft",
+      summary: workEmail || byOid
+        ? `Microsoft sign-in refused (not on the Reach staff list). amr: ${amrLabel(amr)}`
+        : `Microsoft sign-in refused (no Reach staff row). amr: ${amrLabel(amr)}`,
+      amr,
+      email: emails[0] || byOid?.email || "",
+    });
+  }
+
+  if (byOid && byOid.email !== grant.email) {
+    return refuseMicrosoft({
+      reason: "conflict",
       entityId: byOid.id,
       actorId: byOid.id,
-      summary: `Signed in with Microsoft. amr: ${amrLabel(amr)}`,
+      summary: `Microsoft sign-in refused (Microsoft account is linked to a different staff email). amr: ${amrLabel(amr)}`,
       amr,
-      email: byOid.email,
+      email: grant.email,
     });
-    return { ok: true, user: { ...byOid, last_login_at: new Date().toISOString() }, linked: false };
   }
 
-  const matches: UserRow[] = [];
-  for (const email of emails) {
-    const row = findUserByEmail(email);
-    if (row && !matches.some((item) => item.id === row.id)) matches.push(row);
+  let row = byOid ? findUserByEmail(byOid.email) : findUserByEmail(grant.email);
+  let provisioned = false;
+  if (!row) {
+    row = provisionReachUser(grant, microsoftDisplayName(microsoftName, grant));
+    provisioned = true;
   }
-  if (matches.length === 0) {
-    auditMicrosoft({
-      entityId: oid,
-      actorId: "microsoft",
-      summary: `Microsoft sign-in refused (no Reach staff row). amr: ${amrLabel(amr)}`,
-      amr,
-      email: emails[0] || "",
-    });
-    return { ok: false, reason: "unknown" };
-  }
-  if (matches.length > 1) {
-    auditMicrosoft({
-      entityId: oid,
-      actorId: "microsoft",
-      summary: `Microsoft sign-in refused (email matched more than one staff row). amr: ${amrLabel(amr)}`,
-      amr,
-      email: emails[0] || "",
-    });
-    return { ok: false, reason: "conflict" };
-  }
-
-  const row = matches[0];
   if (!row) return { ok: false, reason: "unknown" };
   if (row.auth_disabled) {
-    auditMicrosoft({
+    return refuseMicrosoft({
+      reason: "disabled",
       entityId: row.id,
       actorId: row.id,
       summary: `Microsoft sign-in refused (disabled). amr: ${amrLabel(amr)}`,
       amr,
       email: row.email,
     });
-    return { ok: false, reason: "disabled" };
   }
   if (row.entra_oid && row.entra_oid !== oid) {
-    auditMicrosoft({
+    return refuseMicrosoft({
+      reason: "conflict",
       entityId: row.id,
       actorId: row.id,
       summary: `Microsoft sign-in refused (staff row is linked to a different Microsoft account). amr: ${amrLabel(amr)}`,
       amr,
       email: row.email,
     });
-    return { ok: false, reason: "conflict" };
   }
 
+  const name = microsoftName || row.name;
   try {
-    getDb().prepare(`UPDATE users SET entra_oid = ? WHERE id = ?`).run(oid, row.id);
+    getDb().prepare(`UPDATE users SET entra_oid = ?, role = ?, name = ? WHERE id = ?`).run(oid, grant.role, name, row.id);
   } catch {
-    auditMicrosoft({
+    return refuseMicrosoft({
+      reason: "conflict",
       entityId: row.id,
       actorId: row.id,
       summary: `Microsoft sign-in refused (oid already linked). amr: ${amrLabel(amr)}`,
       amr,
       email: row.email,
     });
-    return { ok: false, reason: "conflict" };
   }
   touchLastLogin(row.id);
   const user = findUserById(row.id);
@@ -277,11 +317,13 @@ export function linkMicrosoftSignIn(input: MicrosoftLinkInput): MicrosoftLinkRes
   auditMicrosoft({
     entityId: user.id,
     actorId: user.id,
-    summary: `Signed in with Microsoft. amr: ${amrLabel(amr)}`,
+    summary: provisioned
+      ? `Provisioned ${user.email} as ${user.role} and signed in with Microsoft. amr: ${amrLabel(amr)}`
+      : `Signed in with Microsoft. amr: ${amrLabel(amr)}`,
     amr,
     email: user.email,
   });
-  return { ok: true, user, linked: true };
+  return { ok: true, user, linked: !row.entra_oid || row.entra_oid !== oid || provisioned, provisioned };
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

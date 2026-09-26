@@ -24,22 +24,33 @@ import { assertProductionSessionSecret } from "../src/lib/session-secret";
 import {
   issueLegacySessionToken,
   issueSessionToken,
+  localPasswordRefusal,
   login,
   readSessionToken,
   SESSION_TTL_SECONDS,
 } from "../src/lib/auth";
 import { listAudit } from "../src/lib/audit";
 import { attemptBreakglass, breakglassConfigured } from "../src/lib/breakglass";
+import { canManageStaff, canSendToWithin, canViewCreditors, canViewExecutive, canViewMoneyPages } from "../src/lib/access";
+import {
+  createCreditor,
+  deleteCreditor,
+  getCreditor,
+  loadCreditorView,
+  pullAccounting,
+  updateCreditor,
+} from "../src/lib/creditors";
 import { getDb } from "../src/lib/db";
 import { beginMicrosoftSignIn, completeMicrosoftSignIn, readOidcTransaction, resetMicrosoftClient } from "../src/lib/entra";
 import { withinPackUrl } from "../src/lib/handoff";
 import { saveLeadForm } from "../src/lib/lead-forms";
 import { verifyBreakglassHash } from "../src/lib/passwords";
 import { findPersonByName } from "../src/lib/people";
+import { REACH_STAFF, allowsBreakglassPassword } from "../src/lib/reach-staff";
 import { resetAuthAttempts } from "../src/lib/rate-limit";
 import { seed, seedIfEmpty } from "../src/lib/seed";
 import { sessionTokenAccepted, sessionTokenLooksValid } from "../src/lib/session";
-import { authenticate, createStaffUser, findUserByEmail, linkMicrosoftSignIn, setStaffDisabled } from "../src/lib/users";
+import { authenticate, createStaffUser, findUserByEmail, linkMicrosoftSignIn, setStaffDisabled, updateStaffLogin } from "../src/lib/users";
 import { postAwaitingAdmission } from "../src/lib/within-send";
 import { readHouseOccupancy } from "../src/lib/within-occupancy";
 
@@ -230,6 +241,7 @@ async function main() {
     assert.strictEqual(model.microsoft, true);
     assert.strictEqual(model.demoList, false);
     assert.strictEqual(model.prefill, false);
+    assert.match(model.note, /Vincent and Morgane/);
   });
 
   assert.strictEqual(breakglassConfigured(), false);
@@ -383,7 +395,10 @@ async function main() {
 
   const redirectUri = microsoftRedirectUri("http://127.0.0.1:9");
   const nowSeconds = Math.floor(Date.now() / 1000);
-  async function callbackCase(overrides: Record<string, unknown>, options?: { mfa?: string; email?: string; oid?: string }) {
+  async function callbackCase(
+    overrides: Record<string, unknown>,
+    options?: { email?: string; oid?: string; name?: string },
+  ) {
     resetMicrosoftClient();
     const started = await beginMicrosoftSignIn({ next: "/enquiries", redirectUri });
     assert.strictEqual(started.ok, true);
@@ -399,14 +414,15 @@ async function main() {
         iss: issuer,
         aud: CLIENT_ID,
         sub: "subject-asha",
-        oid: options?.oid ?? "oid-asha",
+        oid: options?.oid ?? "oid-cindy",
         tid: TENANT,
         nonce: transaction!.nonce,
         iat: nowSeconds,
         exp: nowSeconds + 600,
         c_hash: codeHash(code),
-        preferred_username: options?.email ?? "asha@libertyhomerehab.com",
-        email: options?.email ?? "asha@libertyhomerehab.com",
+        preferred_username: options?.email ?? "Cindy@LibertyHomeRehab.com",
+        email: options?.email ?? "Cindy@LibertyHomeRehab.com",
+        name: options?.name ?? "Cindy de Smidt",
         amr: ["pwd", "mfa"],
         ...overrides,
       },
@@ -427,7 +443,11 @@ async function main() {
       const good = await callbackCase({});
       assert.strictEqual(good.ok, true, JSON.stringify(good));
       if (good.ok) assert.ok(good.amr.includes("mfa"));
-      assert.strictEqual(findUserByEmail("asha@libertyhomerehab.com")?.entra_oid, "oid-asha");
+      const cindy = findUserByEmail("cindy@libertyhomerehab.com");
+      assert.strictEqual(cindy?.entra_oid, "oid-cindy");
+      assert.strictEqual(cindy?.role, "admissions");
+      assert.strictEqual(cindy?.name, "Cindy de Smidt", "Microsoft spelling is stored as sent");
+      assert.notStrictEqual(cindy?.name, "Cindy De Smidt");
       const audits = listAudit("oid-asha").length
         ? listAudit("oid-asha")
         : (getDb().prepare(`SELECT summary FROM audit_events WHERE action = 'sign_in'`).all() as { summary: string }[]);
@@ -455,27 +475,174 @@ async function main() {
 
       const conflict = linkMicrosoftSignIn({
         oid: "oid-other",
-        emails: ["asha@libertyhomerehab.com"],
+        emails: ["cindy@libertyhomerehab.com"],
         amr: ["mfa"],
       });
       assert.strictEqual(conflict.ok, false);
       if (!conflict.ok) assert.strictEqual(conflict.reason, "conflict");
 
-      const unknown = await callbackCase({ oid: "oid-stranger" }, { email: "stranger@libertyhomerehab.com", oid: "oid-stranger" });
+      const unknown = await callbackCase(
+        { oid: "oid-stranger", name: "Stranger" },
+        { email: "stranger@libertyhomerehab.com", oid: "oid-stranger", name: "Stranger" },
+      );
       assert.strictEqual(unknown.ok, false);
-      if (!unknown.ok) assert.strictEqual(unknown.reason, "unknown");
+      if (!unknown.ok) assert.strictEqual(unknown.reason, "unlisted");
+      assert.strictEqual(findUserByEmail("stranger@libertyhomerehab.com"), null);
 
-      const blocked = createStaffUser({
-        name: "Blocked Staff",
-        email: "blocked@libertyhomerehab.com",
+      const ashaSignIn = await callbackCase(
+        { oid: "oid-asha", name: "Asha Nurse" },
+        { email: "asha@libertyhomerehab.com", oid: "oid-asha", name: "Asha Nurse" },
+      );
+      assert.strictEqual(ashaSignIn.ok, false);
+      if (!ashaSignIn.ok) assert.strictEqual(ashaSignIn.reason, "unlisted");
+      assert.strictEqual(findUserByEmail("asha@libertyhomerehab.com")?.entra_oid ?? null, null);
+
+      const manager = linkMicrosoftSignIn({
+        oid: "oid-mmapule",
+        emails: ["Mmapule@LibertyHomeRehab.com"],
+        amr: ["pwd"],
+        name: "Mmapule Mohajane",
+      });
+      assert.strictEqual(manager.ok, true, JSON.stringify(manager));
+      if (manager.ok) {
+        assert.strictEqual(manager.provisioned, true);
+        assert.strictEqual(manager.user.role, "admissions_manager");
+        assert.strictEqual(manager.user.name, "Mmapule Mohajane");
+        assert.strictEqual(canViewExecutive(manager.user), true);
+        assert.strictEqual(canViewCreditors(manager.user), false);
+        assert.strictEqual(canViewMoneyPages(manager.user), false);
+        assert.strictEqual(canManageStaff(manager.user), false);
+        assert.strictEqual(canSendToWithin(manager.user), true);
+        const view = loadCreditorView(manager.user);
+        assert.strictEqual(view.ok, false);
+        const executive = findUserByEmail("executive@liberty.local");
+        assert.ok(executive);
+        const created = createCreditor(
+          {
+            name: "Auth Supplier",
+            facility: "lodge",
+            contactName: "",
+            email: "",
+            phone: "",
+            accountReference: "",
+            notes: "",
+          },
+          executive.id,
+        );
+        assert.strictEqual(created.ok, true);
+        if (created.ok) {
+          const deniedCreate = createCreditor(
+            {
+              name: "Auth Denied Supplier",
+              facility: "lodge",
+              contactName: "",
+              email: "",
+              phone: "",
+              accountReference: "",
+              notes: "",
+            },
+            manager.user.id,
+          );
+          assert.strictEqual(deniedCreate.ok, false);
+          assert.strictEqual(getCreditor(created.creditor.id)?.name, "Auth Supplier");
+          const deniedUpdate = updateCreditor(
+            created.creditor.id,
+            {
+              name: "Auth Hijack",
+              facility: "lodge",
+              contactName: "",
+              email: "",
+              phone: "",
+              accountReference: "",
+              notes: "",
+            },
+            manager.user.id,
+          );
+          assert.strictEqual(deniedUpdate.ok, false);
+          assert.strictEqual(getCreditor(created.creditor.id)?.name, "Auth Supplier");
+          const deniedDelete = deleteCreditor(created.creditor.id, manager.user.id);
+          assert.strictEqual(deniedDelete.ok, false);
+          assert.ok(getCreditor(created.creditor.id));
+          const deniedPull = pullAccounting(manager.user.id);
+          assert.strictEqual(deniedPull.ok, false);
+          assert.strictEqual(deniedPull.imported, 0);
+          getDb().prepare(`DELETE FROM creditors WHERE id = ?`).run(created.creditor.id);
+        }
+      }
+
+      const fallback = linkMicrosoftSignIn({
+        oid: "oid-thembani",
+        emails: ["THEMBANI@libertyhomerehab.com"],
+        amr: ["pwd"],
+      });
+      assert.strictEqual(fallback.ok, true, JSON.stringify(fallback));
+      if (fallback.ok) {
+        assert.strictEqual(fallback.user.role, "admissions");
+        assert.strictEqual(fallback.user.email, "thembani@libertyhomerehab.com");
+        assert.strictEqual(canViewMoneyPages(fallback.user), false);
+        assert.strictEqual(canViewExecutive(fallback.user), false);
+        assert.strictEqual(canViewCreditors(fallback.user), false);
+      }
+      const spelled = linkMicrosoftSignIn({
+        oid: "oid-sinead",
+        emails: ["Sinead@LibertyHomeRehab.com"],
+        amr: ["pwd"],
+        name: "Sinéad",
+      });
+      assert.strictEqual(spelled.ok, true, JSON.stringify(spelled));
+      if (spelled.ok) {
+        assert.strictEqual(spelled.user.role, "finance");
+        assert.strictEqual(spelled.user.name, "Sinéad");
+        assert.strictEqual(canViewCreditors(spelled.user), true);
+      }
+
+      const wrongRole = createStaffUser({
+        name: "Wrong Role",
+        email: "jenna@libertyhomerehab.com",
         role: "therapist",
         actorId: "user_executive",
       });
-      assert.strictEqual(blocked.ok, true);
-      if (blocked.ok) setStaffDisabled({ userId: blocked.user.id, disabled: true, actorId: "user_executive" });
+      assert.strictEqual(wrongRole.ok, true);
+      const corrected = linkMicrosoftSignIn({
+        oid: "oid-jenna",
+        emails: ["jenna@libertyhomerehab.com"],
+        amr: ["pwd"],
+        name: "Jenna",
+      });
+      assert.strictEqual(corrected.ok, true, JSON.stringify(corrected));
+      if (corrected.ok) {
+        assert.strictEqual(corrected.provisioned, false);
+        assert.strictEqual(corrected.user.role, "finance");
+        assert.strictEqual(corrected.user.name, "Jenna");
+      }
+
+      assert.strictEqual(REACH_STAFF.length, 8);
+      for (const grant of REACH_STAFF) {
+        const row = findUserByEmail(grant.email);
+        if (grant.email === "vincent@libertyhomerehab.com" || grant.email === "morgane@libertyhomerehab.com" || grant.email === "mel@libertyhomerehab.com") {
+          continue;
+        }
+        assert.ok(row, grant.email);
+        assert.strictEqual(row?.role, grant.role, grant.email);
+      }
+      for (const email of ["vincent@libertyhomerehab.com", "morgane@libertyhomerehab.com", "mel@libertyhomerehab.com"]) {
+        const linked = linkMicrosoftSignIn({
+          oid: `oid-${email}`,
+          emails: [email],
+          amr: ["pwd"],
+          name: email.split("@")[0],
+        });
+        assert.strictEqual(linked.ok, true, email);
+        if (linked.ok) assert.strictEqual(linked.user.role, "executive");
+      }
+      assert.strictEqual(allowsBreakglassPassword("Vincent@LibertyHomeRehab.com"), true);
+      assert.strictEqual(allowsBreakglassPassword("morgane@libertyhomerehab.com"), true);
+      assert.strictEqual(allowsBreakglassPassword("mel@libertyhomerehab.com"), false);
+
+      if (corrected.ok) setStaffDisabled({ userId: corrected.user.id, disabled: true, actorId: "user_executive" });
       const disabled = await callbackCase(
-        { oid: "oid-blocked" },
-        { email: "blocked@libertyhomerehab.com", oid: "oid-blocked" },
+        { oid: "oid-jenna", name: "Jenna" },
+        { email: "jenna@libertyhomerehab.com", oid: "oid-jenna", name: "Jenna" },
       );
       assert.strictEqual(disabled.ok, false);
       if (!disabled.ok) assert.strictEqual(disabled.reason, "disabled");
@@ -486,6 +653,32 @@ async function main() {
       await new Promise<void>((resolve) => oidcServer?.close(() => resolve()));
     }
   }
+
+  const passwordSet = updateStaffLogin({
+    email: "vincent@libertyhomerehab.com",
+    password: "vincent-breakglass-pass",
+  });
+  assert.strictEqual(passwordSet.ok, true, JSON.stringify(passwordSet));
+  await withEnv({ ...configured, AUTH_PROVIDER: "both" }, async () => {
+    assert.strictEqual(localPasswordRefusal("Vincent@LibertyHomeRehab.com"), null);
+    const allowed = authenticate("Vincent@LibertyHomeRehab.com", "vincent-breakglass-pass");
+    assert.ok(allowed, "Vincent can use the local password while AUTH_PROVIDER=both");
+    assert.strictEqual(allowed?.role, "executive");
+    assert.strictEqual(localPasswordRefusal("morgane@libertyhomerehab.com"), null);
+    const morgane = authenticate("morgane@libertyhomerehab.com", "vincent-breakglass-pass");
+    assert.strictEqual(morgane, null, "Morgane is allowed to try a password, and a wrong one fails");
+    const jenna = await login("jenna@libertyhomerehab.com", "vincent-breakglass-pass");
+    assert.strictEqual(jenna.ok, false);
+    if (!jenna.ok) assert.strictEqual(jenna.reason, "breakglass_only");
+    const demo = await login("executive@liberty.local", "liberty");
+    assert.strictEqual(demo.ok, false);
+    if (!demo.ok) assert.strictEqual(demo.reason, "breakglass_only");
+  });
+  await withEnv({ ...configured, AUTH_PROVIDER: "entra" }, async () => {
+    const refusedVincent = await login("vincent@libertyhomerehab.com", "vincent-breakglass-pass");
+    assert.strictEqual(refusedVincent.ok, false);
+    if (!refusedVincent.ok) assert.strictEqual(refusedVincent.reason, "password_disabled");
+  });
 
   process.env.AUTH_PROVIDER = "entra";
   const savedForm = saveLeadForm({

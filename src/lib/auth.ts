@@ -5,6 +5,7 @@ import { authProvider, microsoftConfigured } from "./auth-mode";
 import { sessionSecret } from "./session-secret";
 import { seedIfEmpty } from "./seed";
 import { SESSION_COOKIE, sessionTokenLooksValid, type SessionMethod } from "./session";
+import { allowsBreakglassPassword } from "./reach-staff";
 import { authenticate, findUserById, touchLastLogin } from "./users";
 import type { User } from "./types";
 
@@ -107,12 +108,20 @@ export async function establishSession(user: User, method: SessionMethod) {
 
 export type PasswordLoginResult =
   | { ok: true; user: User }
-  | { ok: false; reason: "password_disabled" | "not_configured" | "invalid" };
+  | { ok: false; reason: "password_disabled" | "breakglass_only" | "not_configured" | "invalid" };
+
+/** Why a local password must be refused before the password is checked. Null means the form may try. */
+export function localPasswordRefusal(email: string): "password_disabled" | "breakglass_only" | "not_configured" | null {
+  const provider = authProvider();
+  if (provider !== "demo" && !microsoftConfigured()) return "not_configured";
+  if (provider === "entra") return "password_disabled";
+  if (provider === "both" && !allowsBreakglassPassword(email)) return "breakglass_only";
+  return null;
+}
 
 export async function login(email: string, password: string): Promise<PasswordLoginResult> {
-  const provider = authProvider();
-  if (provider !== "demo" && !microsoftConfigured()) return { ok: false, reason: "not_configured" };
-  if (provider === "entra") return { ok: false, reason: "password_disabled" };
+  const refusal = localPasswordRefusal(email);
+  if (refusal) return { ok: false, reason: refusal };
   seedIfEmpty();
   const user = authenticate(email.trim().toLowerCase(), password);
   if (!user) return { ok: false, reason: "invalid" };

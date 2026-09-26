@@ -10,9 +10,18 @@ import {
   registerAccountingConnector,
   sageConnector,
 } from "../src/lib/accounting/connector";
-import { canSendToWithin, canViewCreditors, canViewExecutive } from "../src/lib/access";
+import { canManageStaff, canSendToWithin, canViewCreditors, canViewExecutive, canViewMoneyPages } from "../src/lib/access";
 import { assertLeadForms } from "./assert-lead-forms";
-import { clearAccountingFixtures, createCreditor, pullAccounting, readProfitAndLossStrip } from "../src/lib/creditors";
+import {
+  clearAccountingFixtures,
+  createCreditor,
+  deleteCreditor,
+  getCreditor,
+  loadCreditorView,
+  pullAccounting,
+  readProfitAndLossStrip,
+  updateCreditor,
+} from "../src/lib/creditors";
 import { getDb } from "../src/lib/db";
 import { LEAD_SOURCE_LABEL, NOT_CONVERTED_REASON_LABEL } from "../src/lib/labels";
 import { mapOvernightSupervisionAddon } from "../src/lib/migrate";
@@ -40,7 +49,7 @@ import {
   unassignedNotice,
 } from "../src/lib/within-occupancy";
 import { seed } from "../src/lib/seed";
-import { authenticate, findUserById, listUsers } from "../src/lib/users";
+import { authenticate, createStaffUser, findUserById, listUsers } from "../src/lib/users";
 import { listAudit, undoEvent } from "../src/lib/audit";
 import { sessionTokenLooksValid } from "../src/lib/session";
 import {
@@ -218,10 +227,18 @@ assert.strictEqual(repeats.get("deposit_received"), 2, "Urgent when the same gat
 
 const executive = authenticate("executive@liberty.local", "liberty");
 const financeUser = authenticate("finance@liberty.local", "liberty");
-assert(executive && canViewExecutive(executive) && canViewCreditors(executive));
-assert(financeUser && !canViewExecutive(financeUser) && canViewCreditors(financeUser));
+assert(executive && canViewExecutive(executive) && canViewCreditors(executive) && canViewMoneyPages(executive));
+assert(financeUser && !canViewExecutive(financeUser) && canViewCreditors(financeUser) && canViewMoneyPages(financeUser));
 assert(!canViewExecutive({ role: "accounts" }) && !canViewCreditors({ role: "admissions" }));
 assert(!canViewCreditors({ role: "therapist" }));
+assert(canViewExecutive({ role: "admissions_manager" }));
+assert(!canViewCreditors({ role: "admissions_manager" }));
+assert(!canViewMoneyPages({ role: "admissions_manager" }));
+assert(!canViewMoneyPages({ role: "admissions" }));
+assert(!canManageStaff({ role: "admissions_manager" }));
+assert(canSendToWithin({ role: "admissions_manager" }));
+assert(canViewMoneyPages({ role: "accounts" }));
+assert(canViewMoneyPages({ role: "therapist" }));
 
 for (const email of ["therapist@liberty.local", "admissions@liberty.local", "accounts@liberty.local"]) {
   const user = authenticate(email, "liberty");
@@ -559,6 +576,63 @@ if (createdCreditor.ok) {
   assert.strictEqual(createdCreditor.sync.ok, false);
   assert.strictEqual(createdCreditor.sync.status, "not_wired");
   assert.strictEqual(createdCreditor.creditor.sync_state, "pending_push");
+}
+const admissionsManager = createStaffUser({
+  name: "Mmapule Mohajane",
+  email: "mmapule@libertyhomerehab.com",
+  role: "admissions_manager",
+  actorId: executiveActor.id,
+});
+assert.strictEqual(admissionsManager.ok, true, "admissions manager row");
+if (admissionsManager.ok && createdCreditor.ok) {
+  const manager = admissionsManager.user;
+  assert.strictEqual(canViewExecutive(manager), true);
+  assert.strictEqual(canViewCreditors(manager), false);
+  const view = loadCreditorView(manager);
+  assert.strictEqual(view.ok, false);
+  if (!view.ok) assert.strictEqual(view.error.includes("executive and finance"), true);
+  const deniedCreate = createCreditor(
+    {
+      name: "Denied Supplier",
+      facility: "manor",
+      contactName: "",
+      email: "",
+      phone: "",
+      accountReference: "",
+      notes: "",
+    },
+    manager.id,
+  );
+  assert.strictEqual(deniedCreate.ok, false);
+  assert.strictEqual(
+    getDb().prepare(`SELECT id FROM creditors WHERE name = ?`).get("Denied Supplier"),
+    undefined,
+    "admissions manager cannot insert a creditor",
+  );
+  const deniedUpdate = updateCreditor(
+    createdCreditor.creditor.id,
+    {
+      name: "Hijacked Supplier",
+      facility: "manor",
+      contactName: "",
+      email: "",
+      phone: "",
+      accountReference: "",
+      notes: "",
+    },
+    manager.id,
+  );
+  assert.strictEqual(deniedUpdate.ok, false);
+  assert.strictEqual(getCreditor(createdCreditor.creditor.id)?.name, "QA Supplier");
+  const deniedDelete = deleteCreditor(createdCreditor.creditor.id, manager.id);
+  assert.strictEqual(deniedDelete.ok, false);
+  assert.ok(getCreditor(createdCreditor.creditor.id), "admissions manager cannot delete a creditor");
+  const deniedPull = pullAccounting(manager.id, new Date("2026-09-24T12:00:00.000Z"));
+  assert.strictEqual(deniedPull.ok, false);
+  assert.strictEqual(deniedPull.imported, 0);
+  const executiveView = loadCreditorView(executiveActor);
+  assert.strictEqual(executiveView.ok, true);
+  if (executiveView.ok) assert.ok(executiveView.creditors.some((row) => row.name === "QA Supplier"));
 }
 const beforePull = readProfitAndLossStrip();
 assert.strictEqual(beforePull.connectorId, "sage");

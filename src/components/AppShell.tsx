@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { canManageLeadForms, canManageStaff, canViewCreditors, canViewExecutive } from "@/lib/access";
+import { canManageLeadForms, canManageStaff, canViewCreditors, canViewExecutive, canViewMoneyPages } from "@/lib/access";
 import { readSessionToken } from "@/lib/auth";
 import { FINANCE_NAV, ROLE_LABEL, STAGE_NAV } from "@/lib/labels";
 import { SESSION_COOKIE } from "@/lib/session";
@@ -52,6 +52,7 @@ export async function AppShell({
     ...(canViewCreditors(user) ? [{ href: "/creditors", label: "Creditors" }] : []),
     ...(canManageLeadForms(user) ? [{ href: "/lead-forms", label: "Lead forms" }] : []),
   ];
+  const financeNav = canViewMoneyPages(user) ? FINANCE_NAV : [];
 
   return (
     <div className="min-h-screen">
@@ -84,10 +85,12 @@ export async function AppShell({
             </div>
           ) : null}
           <NavPills items={STAGE_NAV} current={current} />
-          <div className="flex flex-wrap items-center gap-2 border-t border-line/70 pt-2">
-            <p className="text-xs uppercase tracking-wider text-muted">Finance / Admin</p>
-            <NavPills items={FINANCE_NAV} current={current} />
-          </div>
+          {financeNav.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 border-t border-line/70 pt-2">
+              <p className="text-xs uppercase tracking-wider text-muted">Finance / Admin</p>
+              <NavPills items={financeNav} current={current} />
+            </div>
+          ) : null}
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>

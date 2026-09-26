@@ -1,7 +1,7 @@
 import { AppShell } from "@/components/AppShell";
 import { addStaffAction, setStaffDisabledAction, unlinkMicrosoftAction, updateStaffRoleAction } from "@/app/staff-actions";
 import { ROLE_LABEL } from "@/lib/labels";
-import { requireExecutiveAccess } from "@/lib/page-helpers";
+import { requireStaffAdmin } from "@/lib/page-helpers";
 import { ROLES } from "@/lib/types";
 import { listUsers } from "@/lib/users";
 
@@ -12,15 +12,16 @@ export default async function StaffPage({
 }: {
   searchParams: Promise<{ error?: string; notice?: string }>;
 }) {
-  const user = await requireExecutiveAccess();
+  const user = await requireStaffAdmin();
   const params = await searchParams;
   const staff = listUsers();
   return (
     <AppShell user={user} current="/staff">
       <h1 className="serif text-4xl text-sage-deep">Staff access</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted">
-        People sign in with the Microsoft email listed here. New rows do not get a usable password. Disable someone
-        to stop sign-in without deleting their history.
+        Microsoft sign-in only opens Reach for the confirmed @libertyhomerehab.com staff list. Anyone else in the
+        tenant is refused, even after Entra assignment. New rows do not get a usable password. Disable someone to
+        stop sign-in without deleting their history.
       </p>
       {params.error ? <p className="mt-4 text-sm text-terracotta">{params.error}</p> : null}
       {params.notice ? <p className="mt-4 text-sm text-sage-deep">{params.notice}</p> : null}

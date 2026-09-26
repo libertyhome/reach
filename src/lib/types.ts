@@ -1,4 +1,4 @@
-export const ROLES = ["therapist", "admissions", "accounts", "finance", "executive"] as const;
+export const ROLES = ["therapist", "admissions", "admissions_manager", "accounts", "finance", "executive"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const STAGES = [

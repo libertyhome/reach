@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { canManageLeadForms, canViewCreditors, canViewExecutive } from "./access";
+import { canManageLeadForms, canManageStaff, canViewCreditors, canViewExecutive, canViewMoneyPages } from "./access";
 import { getCurrentUser } from "./auth";
 import { seedIfEmpty } from "./seed";
 import type { User } from "./types";
@@ -14,10 +14,24 @@ export async function requireStaff(): Promise<User> {
   return user;
 }
 
-/** Executive occupancy and analytics. Other roles are sent back to the pipeline. */
+/** Executive occupancy and analytics. Admissions manager may open this page. Other roles go back to the pipeline. */
 export async function requireExecutiveAccess(): Promise<User> {
   const user = await requireStaff();
   if (!canViewExecutive(user)) redirect("/enquiries");
+  return user;
+}
+
+/** Staff admin. Executive only — admissions manager does not manage staff. */
+export async function requireStaffAdmin(): Promise<User> {
+  const user = await requireStaff();
+  if (!canManageStaff(user)) redirect("/enquiries");
+  return user;
+}
+
+/** Accounts, invoices, insurance, and visa. Admissions roles are sent back to the pipeline. */
+export async function requireMoneyAccess(): Promise<User> {
+  const user = await requireStaff();
+  if (!canViewMoneyPages(user)) redirect("/enquiries");
   return user;
 }
 

@@ -95,7 +95,7 @@ export function loginPageModel() {
   } else if (provider === "entra") {
     note = "Sign in with Microsoft 365. Multifactor authentication is part of that sign-in.";
   } else if (provider === "both") {
-    note = "Sign in with Microsoft 365 and MFA. A password still works during the trial.";
+    note = "Sign in with Microsoft. Vincent and Morgane can still use a local password during this trial.";
   } else if (!demoList) {
     note = "Production sign-in will be Microsoft 365 with MFA.";
   }

@@ -28,6 +28,7 @@ export type MicrosoftFailure =
   | "issuer"
   | "mfa"
   | "unknown"
+  | "unlisted"
   | "disabled"
   | "conflict";
 

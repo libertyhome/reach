@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canViewMoneyPages } from "@/lib/access";
 import { getCurrentUser } from "@/lib/auth";
 import { raiseSageInvoice } from "@/lib/finance";
 import type { Currency } from "@/lib/types";
@@ -14,6 +15,9 @@ export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!canViewMoneyPages(user)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   let body: {
