@@ -1,5 +1,7 @@
+import { randomBytes } from "crypto";
 import { writeAudit } from "./audit";
 import { getDb } from "./db";
+import { demoLoginEnabled } from "./demo-login";
 import { seedFinance } from "./finance-seed";
 import { roomId } from "./houses";
 import { newId } from "./passwords";
@@ -342,15 +344,38 @@ function seedAmelia() {
   });
 }
 
-function ensureMissingStaff() {
+function passwordForNewStaff(knownPassword: string) {
+  if (demoLoginEnabled()) return knownPassword;
+  // Unknown to operators and not the demo password. The row exists so history can keep its actor id.
+  return randomBytes(32).toString("base64url");
+}
+
+/** `next build` loads pages in production mode. Do not write a database while compiling. */
+function seedingAllowed() {
+  return process.env.NEXT_PHASE !== "phase-production-build";
+}
+
+/** Insert staff that are missing. Never updates an existing row or its password. */
+function ensureStaffAccounts(createdAt: string) {
   for (const staff of STAFF) {
-    if (!findUserByEmail(staff.email)) {
-      upsertUser({ ...staff, createdAt: new Date().toISOString() });
-    }
+    if (findUserByEmail(staff.email)) continue;
+    upsertUser({
+      id: staff.id,
+      email: staff.email,
+      name: staff.name,
+      role: staff.role,
+      password: passwordForNewStaff(staff.password),
+      createdAt,
+    });
   }
 }
 
+function ensureMissingStaff() {
+  ensureStaffAccounts(new Date().toISOString());
+}
+
 export function seedIfEmpty() {
+  if (!seedingAllowed()) return;
   const count = getDb().prepare(`SELECT COUNT(*) as c FROM users`).get() as { c: number };
   if (count.c === 0) {
     seed();
@@ -360,14 +385,14 @@ export function seedIfEmpty() {
 }
 
 export function seed() {
+  if (!seedingAllowed()) return;
   // Railway runs `npm run db:seed` on every production deploy.
   // Lead forms, and the enquiries they open, are created in the app. Do not insert them here.
   ensureRooms();
-  const createdAt = iso(40, 8);
-  for (const staff of STAFF) {
-    upsertUser({ ...staff, createdAt });
-  }
+  ensureStaffAccounts(iso(40, 8));
 
+  // TODO: demo people (Amelia, residents, and the pipeline) are still seeded in production.
+  // Stopping that is a separate issue from closing demo login. Do not change that data here.
   seedAmelia();
 
   const manorOthers: [string, string, string, number][] = [

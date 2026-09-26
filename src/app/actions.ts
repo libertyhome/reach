@@ -1,9 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { undoEvent } from "@/lib/audit";
 import { getCurrentUser, login, logout } from "@/lib/auth";
+import { demoLoginEnabled } from "@/lib/demo-login";
+import {
+  LOGIN_GENERIC_ERROR,
+  LOGIN_RATE_LIMIT_ERROR,
+  clearLoginFailures,
+  clientIp,
+  isLoginRateLimited,
+  recordLoginFailure,
+} from "@/lib/login-rate-limit";
 import { sendPersonToWithin } from "@/lib/within-send";
 import { deletePersonDocument, savePersonDocument } from "@/lib/documents";
 import { getPerson } from "@/lib/people";
@@ -64,11 +74,24 @@ export async function loginAction(_prev: { error?: string } | null, formData: Fo
   const email = formString(formData, "email");
   const password = formString(formData, "password");
   const nextPath = safeNext(formString(formData, "next"));
+  const demo = demoLoginEnabled();
+  const ip = clientIp(await headers());
+  if (isLoginRateLimited(ip, email)) {
+    return { error: LOGIN_RATE_LIMIT_ERROR };
+  }
   try {
     const user = await login(email, password);
-    if (!user) return { error: "Check the email and password. Demo password is liberty." };
+    if (!user) {
+      recordLoginFailure(ip, email);
+      return { error: demo ? "Check the email and password. Demo password is liberty." : LOGIN_GENERIC_ERROR };
+    }
+    clearLoginFailures(ip, email);
   } catch {
-    return { error: "Sign-in could not finish. Try again — demo password is liberty." };
+    return {
+      error: demo
+        ? "Sign-in could not finish. Try again — demo password is liberty."
+        : "Sign-in could not finish. Try again.",
+    };
   }
   redirect(nextPath);
 }

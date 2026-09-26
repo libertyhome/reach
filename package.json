@@ -5,12 +5,14 @@
   "scripts": {
     "dev": "next dev --turbopack -p 3001",
     "build": "next build --turbopack",
-    "start": "next start",
+    "start": "tsx scripts/require-secret.ts && next start",
     "lint": "eslint",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/reset.ts",
-    "qa:assert": "tsx scripts/qa-assert.ts"
+    "user:set-password": "tsx scripts/set-password.ts",
+    "qa:login": "tsx scripts/login-assert.ts",
+    "qa:assert": "tsx scripts/login-assert.ts && tsx scripts/qa-assert.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

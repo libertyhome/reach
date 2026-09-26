@@ -1,15 +1,15 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { seedIfEmpty } from "./seed";
+import { sessionSecret } from "./session-secret";
 import { SESSION_COOKIE, sessionTokenLooksValid } from "./session";
 import { authenticate, findUserById } from "./users";
 import type { User } from "./types";
 
 export { SESSION_COOKIE, sessionTokenLooksValid };
-const SECRET = process.env.REACH_SECRET || "reach-liberty-home-demo-secret";
 
 function sign(userId: string) {
-  const hmac = createHmac("sha256", SECRET).update(userId).digest("hex");
+  const hmac = createHmac("sha256", sessionSecret()).update(userId).digest("hex");
   return `${userId}.${hmac}`;
 }
 
@@ -17,7 +17,7 @@ function unsign(token: string) {
   if (!sessionTokenLooksValid(token)) return null;
   const [userId, hmac] = token.split(".");
   if (!userId || !hmac) return null;
-  const expected = createHmac("sha256", SECRET).update(userId).digest("hex");
+  const expected = createHmac("sha256", sessionSecret()).update(userId).digest("hex");
   const a = Buffer.from(hmac);
   const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
