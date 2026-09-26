@@ -1,5 +1,5 @@
 const nextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: ["better-sqlite3", "openid-client"],
 };
 
 export default nextConfig;

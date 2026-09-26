@@ -9,6 +9,11 @@ export function canViewExecutive(user: Pick<User, "role">) {
   return user.role === "executive";
 }
 
+/** Staff access page. Executive is the admin desk. */
+export function canManageStaff(user: Pick<User, "role">) {
+  return user.role === "executive";
+}
+
 export function canViewCreditors(user: Pick<User, "role">) {
   return user.role === "executive" || user.role === "finance";
 }

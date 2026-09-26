@@ -92,7 +92,30 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_people_house ON people(house);
     CREATE INDEX IF NOT EXISTS idx_people_room ON people(room_id);
     CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_events(entity_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS auth_attempts (
+      id TEXT PRIMARY KEY,
+      bucket TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_attempts_bucket ON auth_attempts(bucket, created_at);
   `);
+
+  const userColumns = new Set(
+    (db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[]).map((column) => column.name),
+  );
+  if (!userColumns.has("entra_oid")) {
+    db.exec(`ALTER TABLE users ADD COLUMN entra_oid TEXT`);
+  }
+  if (!userColumns.has("last_login_at")) {
+    db.exec(`ALTER TABLE users ADD COLUMN last_login_at TEXT`);
+  }
+  if (!userColumns.has("auth_disabled")) {
+    db.exec(`ALTER TABLE users ADD COLUMN auth_disabled INTEGER NOT NULL DEFAULT 0`);
+  }
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_entra_oid ON users(entra_oid) WHERE entra_oid IS NOT NULL AND entra_oid != ''`,
+  );
 
   const columns = new Set(
     (db.prepare(`PRAGMA table_info(people)`).all() as { name: string }[]).map((column) => column.name),

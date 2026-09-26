@@ -127,6 +127,9 @@ export const AUDIT_ACTIONS = [
   "admit",
   "within_send",
   "undo",
+  "sign_in",
+  "sign_out",
+  "staff_change",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -136,6 +139,9 @@ export type User = {
   name: string;
   role: Role;
   created_at: string;
+  entra_oid: string | null;
+  last_login_at: string | null;
+  auth_disabled: number;
 };
 
 export type Room = {
@@ -247,7 +253,7 @@ export type PersonDocument = {
 
 export type AuditEvent = {
   id: string;
-  entity_type: "person";
+  entity_type: string;
   entity_id: string;
   action: AuditAction;
   summary: string;

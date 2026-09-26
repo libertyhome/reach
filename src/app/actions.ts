@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { undoEvent } from "@/lib/audit";
-import { getCurrentUser, login, logout } from "@/lib/auth";
+import { authProvider } from "@/lib/auth-mode";
+import { getCurrentUser, login } from "@/lib/auth";
 import { demoLoginEnabled } from "@/lib/demo-login";
 import {
   LOGIN_GENERIC_ERROR,
@@ -14,6 +15,7 @@ import {
   isLoginRateLimited,
   recordLoginFailure,
 } from "@/lib/login-rate-limit";
+import { safeNext } from "@/lib/safe-next";
 import { sendPersonToWithin } from "@/lib/within-send";
 import { deletePersonDocument, savePersonDocument } from "@/lib/documents";
 import { getPerson } from "@/lib/people";
@@ -58,13 +60,6 @@ function afterChange(personId: string, eventId: string, fallback = `/people/${pe
   redirect(`${fallback}?undo=${eventId}`);
 }
 
-function safeNext(value: string) {
-  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\") || value.startsWith("/login")) {
-    return "/enquiries";
-  }
-  return value;
-}
-
 function actorLabel(name: string) {
   const first = name.trim().split(/\s+/)[0] || name;
   return first;
@@ -74,21 +69,29 @@ export async function loginAction(_prev: { error?: string } | null, formData: Fo
   const email = formString(formData, "email");
   const password = formString(formData, "password");
   const nextPath = safeNext(formString(formData, "next"));
-  const demo = demoLoginEnabled();
+  const demoHints = authProvider() === "demo" && demoLoginEnabled();
   const ip = clientIp(await headers());
   if (isLoginRateLimited(ip, email)) {
     return { error: LOGIN_RATE_LIMIT_ERROR };
   }
   try {
-    const user = await login(email, password);
-    if (!user) {
+    const result = await login(email, password);
+    if (!result.ok) {
+      if (result.reason === "password_disabled") {
+        return { error: "Password sign-in is turned off. Use Sign in with Microsoft." };
+      }
+      if (result.reason === "not_configured") {
+        return { error: "Microsoft sign-in is not configured." };
+      }
       recordLoginFailure(ip, email);
-      return { error: demo ? "Check the email and password. Demo password is liberty." : LOGIN_GENERIC_ERROR };
+      return {
+        error: demoHints ? "Check the email and password. Demo password is liberty." : LOGIN_GENERIC_ERROR,
+      };
     }
     clearLoginFailures(ip, email);
   } catch {
     return {
-      error: demo
+      error: demoHints
         ? "Sign-in could not finish. Try again — demo password is liberty."
         : "Sign-in could not finish. Try again.",
     };
@@ -97,8 +100,7 @@ export async function loginAction(_prev: { error?: string } | null, formData: Fo
 }
 
 export async function logoutAction() {
-  await logout();
-  redirect("/login");
+  redirect("/api/auth/logout");
 }
 
 export async function createEnquiryAction(formData: FormData) {

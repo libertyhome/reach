@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { allowedHostsFor, frameAncestorsCsp, getActiveLeadFormBySlug } from "@/lib/lead-forms";
-import { SESSION_COOKIE, sessionTokenLooksValid } from "@/lib/session";
+import { SESSION_COOKIE, sessionTokenAccepted } from "@/lib/session";
 
 export const runtime = "nodejs";
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  const valid = sessionTokenLooksValid(token);
+  const valid = sessionTokenAccepted(token);
   const { pathname } = request.nextUrl;
   const isLogin = pathname.startsWith("/login");
   const isPublic = pathname === "/privacy" || pathname.startsWith("/f/");

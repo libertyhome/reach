@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { logoutAction } from "@/app/actions";
-import { canManageLeadForms, canViewCreditors, canViewExecutive } from "@/lib/access";
+import { cookies } from "next/headers";
+import { canManageLeadForms, canManageStaff, canViewCreditors, canViewExecutive } from "@/lib/access";
+import { readSessionToken } from "@/lib/auth";
 import { FINANCE_NAV, ROLE_LABEL, STAGE_NAV } from "@/lib/labels";
+import { SESSION_COOKIE } from "@/lib/session";
 import type { User } from "@/lib/types";
 import { BrandMark } from "./BrandMark";
 
@@ -32,7 +34,7 @@ function NavPills({
   );
 }
 
-export function AppShell({
+export async function AppShell({
   user,
   current,
   children,
@@ -41,14 +43,23 @@ export function AppShell({
   current?: string;
   children: React.ReactNode;
 }) {
+  const jar = await cookies();
+  const session = readSessionToken(jar.get(SESSION_COOKIE)?.value);
+  const breakGlass = session?.method === "breakglass";
   const leadership = [
     ...(canViewExecutive(user) ? [{ href: "/executive", label: "Executive" }] : []),
+    ...(canManageStaff(user) ? [{ href: "/staff", label: "Staff" }] : []),
     ...(canViewCreditors(user) ? [{ href: "/creditors", label: "Creditors" }] : []),
     ...(canManageLeadForms(user) ? [{ href: "/lead-forms", label: "Lead forms" }] : []),
   ];
 
   return (
     <div className="min-h-screen">
+      {breakGlass ? (
+        <div className="bg-terracotta px-4 py-2 text-center text-sm text-paper">
+          Emergency sign-in. This session lasts one hour and is audited.
+        </div>
+      ) : null}
       <header className="sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between gap-4">
@@ -60,7 +71,7 @@ export function AppShell({
                 <p className="text-sm">{user.name}</p>
                 <p className="text-xs text-muted">{ROLE_LABEL[user.role]}</p>
               </div>
-              <form action={logoutAction}>
+              <form action="/api/auth/logout" method="post">
                 <button type="submit" className="min-h-11 rounded-full border border-line px-4 py-2 text-sm">
                   Sign out
                 </button>

@@ -12,14 +12,15 @@ export function writeAudit(input: {
   action: AuditAction;
   summary: string;
   actorId: string;
-  before: Person | null;
-  after: Person | null;
+  before: unknown;
+  after: unknown;
   undoOf?: string;
   createdAt?: string;
+  entityType?: string;
 }) {
   const event: AuditEvent = {
     id: newId("aud"),
-    entity_type: "person",
+    entity_type: input.entityType ?? "person",
     entity_id: input.personId,
     action: input.action,
     summary: input.summary,
@@ -63,7 +64,7 @@ export function latestUndoable(personId?: string): AuditEvent | null {
       (getDb()
         .prepare(
           `SELECT * FROM audit_events
-           WHERE entity_id = ? AND undone = 0 AND action != 'undo' AND before_json != 'null'
+           WHERE entity_type = 'person' AND entity_id = ? AND undone = 0 AND action != 'undo' AND before_json != 'null'
            ORDER BY created_at DESC LIMIT 1`,
         )
         .get(personId) as AuditEvent | undefined) ?? null
@@ -73,7 +74,7 @@ export function latestUndoable(personId?: string): AuditEvent | null {
     (getDb()
       .prepare(
         `SELECT * FROM audit_events
-         WHERE undone = 0 AND action != 'undo' AND before_json != 'null'
+         WHERE entity_type = 'person' AND undone = 0 AND action != 'undo' AND before_json != 'null'
          ORDER BY created_at DESC LIMIT 1`,
       )
       .get() as AuditEvent | undefined) ?? null
@@ -83,6 +84,7 @@ export function latestUndoable(personId?: string): AuditEvent | null {
 export function undoEvent(eventId: string, actorId: string) {
   const event = getAuditEvent(eventId);
   if (!event) return { ok: false as const, error: "Nothing to undo." };
+  if (event.entity_type !== "person") return { ok: false as const, error: "That action has no prior state." };
   if (event.undone) return { ok: false as const, error: "That change was already undone." };
   if (event.action === "undo") return { ok: false as const, error: "Cannot undo an undo record." };
   if (event.before_json === "null") return { ok: false as const, error: "That action has no prior state." };
