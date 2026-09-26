@@ -8,6 +8,7 @@ import { newId } from "./passwords";
 import { findPersonByName, insertPerson, replacePerson } from "./people";
 import { ensureRooms } from "./rooms";
 import { LEAD_SOURCES, type House, type LeadSource, type Person, type Stage } from "./types";
+import { authProvider } from "./auth-mode";
 import { findUserByEmail, upsertUser } from "./users";
 
 const STAFF = [
@@ -355,8 +356,13 @@ function seedingAllowed() {
   return process.env.NEXT_PHASE !== "phase-production-build";
 }
 
-/** Insert staff that are missing. Never updates an existing row or its password. */
+/**
+ * Insert missing demo staff only while AUTH_PROVIDER is demo.
+ * `both` and `entra` skip this so a deploy cannot recreate demo accounts.
+ * upsertUser never rewrites an existing password.
+ */
 function ensureStaffAccounts(createdAt: string) {
+  if (authProvider() !== "demo") return;
   for (const staff of STAFF) {
     if (findUserByEmail(staff.email)) continue;
     upsertUser({

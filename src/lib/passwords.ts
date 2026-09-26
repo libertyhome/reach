@@ -12,6 +12,19 @@ export function verifyPassword(password: string, hash: string, salt: string) {
   return timingSafeEqual(next, current);
 }
 
+/** Railway value format: scrypt$salt$hash. The password itself never goes in the database. */
+export function formatBreakglassHash(password: string) {
+  const { hash, salt } = hashPassword(password);
+  return `scrypt$${salt}$${hash}`;
+}
+
+export function verifyBreakglassHash(password: string, stored: string) {
+  const parts = stored.split("$");
+  if (parts.length !== 3 || parts[0] !== "scrypt" || !parts[1] || !parts[2]) return false;
+  if (!/^[0-9a-f]+$/i.test(parts[1]) || !/^[0-9a-f]+$/i.test(parts[2])) return false;
+  return verifyPassword(password, parts[2], parts[1]);
+}
+
 export function newId(prefix = "") {
   const id = randomBytes(8).toString("hex");
   return prefix ? `${prefix}_${id}` : id;

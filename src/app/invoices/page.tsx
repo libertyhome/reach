@@ -2,14 +2,14 @@ import { AppShell } from "@/components/AppShell";
 import { FinanceUndoBar } from "@/components/FinanceUndoBar";
 import { InvoicesBoard } from "@/components/InvoicesBoard";
 import { listInvoiceRequests, listPaymentInvoices } from "@/lib/finance";
-import { requireStaff } from "@/lib/page-helpers";
+import { requireMoneyAccess } from "@/lib/page-helpers";
 
 export default async function InvoicesPage({
   searchParams,
 }: {
   searchParams: Promise<{ undo?: string; notice?: string }>;
 }) {
-  const user = await requireStaff();
+  const user = await requireMoneyAccess();
   const params = await searchParams;
 
   return (

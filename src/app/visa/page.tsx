@@ -1,14 +1,14 @@
 import { AppShell } from "@/components/AppShell";
 import { VisaBoard } from "@/components/VisaBoard";
 import { listVisaApps } from "@/lib/finance";
-import { requireStaff } from "@/lib/page-helpers";
+import { requireMoneyAccess } from "@/lib/page-helpers";
 
 export default async function VisaPage({
   searchParams,
 }: {
   searchParams: Promise<{ facility?: string }>;
 }) {
-  const user = await requireStaff();
+  const user = await requireMoneyAccess();
   const params = await searchParams;
   const facilityRaw = params.facility ?? "all";
   const facility = facilityRaw === "manor" || facilityRaw === "lodge" ? facilityRaw : "all";

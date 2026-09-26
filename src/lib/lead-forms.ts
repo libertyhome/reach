@@ -124,6 +124,9 @@ const LEAD_INTAKE_ACTOR: User = {
   name: "Lead forms",
   role: "admissions",
   created_at: "2026-01-01T00:00:00.000Z",
+  entra_oid: null,
+  last_login_at: null,
+  auth_disabled: 0,
 };
 
 export function emptyAttribution(): Attribution {

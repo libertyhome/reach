@@ -8,9 +8,14 @@ import {
   LIBERTY_TENANT,
   connectorForTenant,
 } from "./accounting/connector";
+import { canViewCreditors } from "./access";
 import { getDb } from "./db";
 import { HOUSE_LABEL } from "./labels";
 import { newId } from "./passwords";
+import type { User } from "./types";
+import { findUserById } from "./users";
+
+const CREDITOR_DENIED = "Creditors are limited to executive and finance.";
 
 export type CreditorSyncState = "local" | "pending_push" | "synced";
 
@@ -68,6 +73,18 @@ function monthBounds(asOf = new Date()) {
   const day = asOf.toISOString().slice(0, 10);
   const start = `${day.slice(0, 7)}-01`;
   return { periodStart: start, periodEnd: day };
+}
+
+function creditorActor(actorId: string) {
+  const user = findUserById(actorId);
+  if (!user || user.auth_disabled || !canViewCreditors(user)) return null;
+  return user;
+}
+
+/** Creditor rows and the profit-and-loss strip. Refuses every other role, including admissions manager. */
+export function loadCreditorView(user: Pick<User, "role">) {
+  if (!canViewCreditors(user)) return { ok: false as const, error: CREDITOR_DENIED };
+  return { ok: true as const, creditors: listCreditors(), pnl: readProfitAndLossStrip() };
 }
 
 export function listCreditors(): Creditor[] {
@@ -162,6 +179,7 @@ function pushCreditor(creditor: Creditor, actorId: string, connector = connector
 }
 
 export function createCreditor(input: CreditorInput, actorId: string) {
+  if (!creditorActor(actorId)) return { ok: false as const, error: CREDITOR_DENIED };
   const name = input.name.trim();
   if (!name) return { ok: false as const, error: "Creditor name is required." };
   const at = nowIso();
@@ -197,6 +215,7 @@ export function createCreditor(input: CreditorInput, actorId: string) {
 }
 
 export function updateCreditor(id: string, input: CreditorInput, actorId: string) {
+  if (!creditorActor(actorId)) return { ok: false as const, error: CREDITOR_DENIED };
   const existing = getCreditor(id);
   if (!existing) return { ok: false as const, error: "Creditor not found." };
   const name = input.name.trim();
@@ -226,6 +245,7 @@ export function updateCreditor(id: string, input: CreditorInput, actorId: string
 }
 
 export function deleteCreditor(id: string, actorId: string) {
+  if (!creditorActor(actorId)) return { ok: false as const, error: CREDITOR_DENIED };
   const existing = getCreditor(id);
   if (!existing) return { ok: false as const, error: "Creditor not found." };
   const connector = connectorForTenant();
@@ -328,6 +348,7 @@ function storePnl(connector: AccountingConnector, line: ProfitAndLossLine) {
 }
 
 export function pullAccounting(actorId: string, asOf = new Date()) {
+  if (!creditorActor(actorId)) return { ok: false as const, imported: 0, message: CREDITOR_DENIED };
   const connector = connectorForTenant(LIBERTY_TENANT);
   const { periodStart, periodEnd } = monthBounds(asOf);
   let imported = 0;
@@ -377,6 +398,7 @@ export function pullAccounting(actorId: string, asOf = new Date()) {
   }
   const unique = [...new Set(messages)];
   return {
+    ok: true as const,
     imported,
     message:
       unique.length > 0
