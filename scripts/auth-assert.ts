@@ -616,7 +616,24 @@ async function main() {
         assert.strictEqual(corrected.user.name, "Jenna");
       }
 
-      assert.strictEqual(REACH_STAFF.length, 8);
+      const kelly = linkMicrosoftSignIn({
+        oid: "oid-kelly",
+        emails: ["Kelly@LibertyHomeRehab.com"],
+        amr: ["pwd"],
+      });
+      assert.strictEqual(kelly.ok, true, JSON.stringify(kelly));
+      if (kelly.ok) {
+        assert.strictEqual(kelly.provisioned, true);
+        assert.strictEqual(kelly.user.role, "admissions");
+        assert.strictEqual(kelly.user.email, "kelly@libertyhomerehab.com");
+        assert.strictEqual(kelly.user.name, "Kelly");
+        assert.strictEqual(canViewMoneyPages(kelly.user), false);
+        assert.strictEqual(canViewExecutive(kelly.user), false);
+        assert.strictEqual(canViewCreditors(kelly.user), false);
+      }
+      assert.strictEqual(allowsBreakglassPassword("kelly@libertyhomerehab.com"), false);
+
+      assert.strictEqual(REACH_STAFF.length, 9);
       for (const grant of REACH_STAFF) {
         const row = findUserByEmail(grant.email);
         if (grant.email === "vincent@libertyhomerehab.com" || grant.email === "morgane@libertyhomerehab.com" || grant.email === "mel@libertyhomerehab.com") {

@@ -50,7 +50,7 @@ Matching is the work email, case-insensitive, and only `@libertyhomerehab.com`. 
 
 ## Confirmed staff
 
-Only these eight people are provisioned. The role on the list is applied at sign-in. The display name is the ID token `name` as Microsoft sent it. The names below are the fallback when that claim is empty.
+Only these nine people are provisioned. The role on the list is applied at sign-in. The display name is the ID token `name` as Microsoft sent it. The names below are the fallback when that claim is empty.
 
 | Email | Role | What they see |
 | --- | --- | --- |
@@ -62,6 +62,7 @@ Only these eight people are provisioned. The role on the list is applied at sign
 | mmapule@libertyhomerehab.com | admissions_manager | Admissions pipeline plus the Executive dashboard. Display name fallback **Mmapule Mohajane**. No creditors and no money pages. |
 | cindy@libertyhomerehab.com | admissions | Admissions pipeline only. Display name fallback **Cindy De Smidt**. No money pages. |
 | thembani@libertyhomerehab.com | admissions | House manager. Admissions pipeline only. No money pages. |
+| kelly@libertyhomerehab.com | admissions | Day RA and Admin at the Lodge. Display name fallback **Kelly**. Admissions pipeline only. No money pages. |
 
 `admissions_manager` does not see Staff admin or lead forms. Creditor pages, creditor server actions, creditor creates, updates, deletes, accounting pull, and the profit-and-loss strip all check the role on the server. Hiding the nav link is not the control.
 
@@ -93,7 +94,7 @@ Paste only the printed line into `REACH_BREAKGLASS_PASSWORD_HASH`. `/login/emerg
 
 ## Staff
 
-Executive → **Staff** (`/staff`) adds a person (name, email, role), changes a role, disables sign-in, or unlinks Microsoft. Microsoft sign-in still only succeeds for the eight confirmed emails. A row added here for anyone else does not grant Reach. Disabling one of the eight stops their sign-in. Demo `@liberty.local` rows are kept for history; Microsoft cannot sign in as them.
+Executive → **Staff** (`/staff`) adds a person (name, email, role), changes a role, disables sign-in, or unlinks Microsoft. Microsoft sign-in still only succeeds for the nine confirmed emails. A row added here for anyone else does not grant Reach. Disabling one of the nine stops their sign-in. Demo `@liberty.local` rows are kept for history; Microsoft cannot sign in as them.
 
 `db:seed` never rewrites an existing staff password. While `AUTH_PROVIDER` is `both` or `entra`, it also does not insert missing demo staff. In `demo`, a missing staff row is created with the known password only when demo login is on; otherwise the new row gets a random password. Other demo data is unchanged. Passwords are set with `npm run user:set-password`. Password sign-in is limited to 5 failures per 15 minutes per address and email.
 
@@ -130,7 +131,7 @@ These keep their current checks when `AUTH_PROVIDER=entra`:
 ## Rollout
 
 1. **1 Oct:** `AUTH_PROVIDER=both`, break-glass variables set, `AUTH_REQUIRE_MFA` left unset. Staff can use Microsoft. Passwords still work. Security defaults stay on in Entra.
-2. **Before 1 Nov:** each of the eight staff signs in with Microsoft once so the row is provisioned and the `oid` is stored. Set Vincent and Morgane's local passwords if the trial still needs them.
+2. **Before 1 Nov:** each of the nine staff signs in with Microsoft once so the row is provisioned and the `oid` is stored. Set Vincent and Morgane's local passwords if the trial still needs them.
 3. **1 Nov:** `AUTH_PROVIDER=entra` and rotate `REACH_SECRET`. Password sessions end. Staff sign in with Microsoft.
 
 Rollback: set `AUTH_PROVIDER` back to `both` (or `demo`) and redeploy. Break-glass keeps working in every mode once its variables are set.

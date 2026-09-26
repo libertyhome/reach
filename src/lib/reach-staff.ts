@@ -16,7 +16,8 @@ export type ReachStaffGrant = {
 /**
  * Confirmed staff who may be provisioned from Entra.
  * Display names that are confirmed use the Microsoft spelling.
- * Thembani is the house manager: admissions view only, no money pages.
+ * Thembani is the house manager, and Kelly is Day RA and Admin at the Lodge.
+ * Both get the admissions view only, with no money pages.
  */
 export const REACH_STAFF: readonly ReachStaffGrant[] = [
   { email: "vincent@libertyhomerehab.com", role: "executive" },
@@ -27,6 +28,7 @@ export const REACH_STAFF: readonly ReachStaffGrant[] = [
   { email: "mmapule@libertyhomerehab.com", role: "admissions_manager", name: "Mmapule Mohajane" },
   { email: "cindy@libertyhomerehab.com", role: "admissions", name: "Cindy De Smidt" },
   { email: "thembani@libertyhomerehab.com", role: "admissions" },
+  { email: "kelly@libertyhomerehab.com", role: "admissions", name: "Kelly" },
 ];
 
 /** Local password on the normal sign-in form while AUTH_PROVIDER=both. */
