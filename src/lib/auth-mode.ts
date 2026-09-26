@@ -65,6 +65,11 @@ export function microsoftConfigured() {
   return microsoftSettings() !== null;
 }
 
+/**
+ * Off unless AUTH_REQUIRE_MFA is `1`, `true`, or `yes`.
+ * libertyhomerehab.com uses free Entra security defaults, so leave this unset.
+ * Microsoft only prompts MFA on some sign-ins, and those tokens often omit `mfa` from `amr`.
+ */
 export function mfaRequired() {
   const raw = process.env.AUTH_REQUIRE_MFA?.trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";

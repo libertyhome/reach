@@ -17,6 +17,7 @@ import {
   assertAuthStartup,
   authProvider,
   loginPageModel,
+  mfaRequired,
   microsoftRedirectUri,
 } from "../src/lib/auth-mode";
 import { assertProductionSessionSecret } from "../src/lib/session-secret";
@@ -82,8 +83,15 @@ function signJwt(payload: Record<string, unknown>, privateKey: KeyObject) {
 }
 
 async function main() {
-  await withEnv({ AUTH_PROVIDER: undefined }, () => {
+  await withEnv({ AUTH_PROVIDER: undefined, AUTH_REQUIRE_MFA: undefined }, () => {
     assert.strictEqual(authProvider(), "demo");
+    assert.strictEqual(mfaRequired(), false);
+  });
+  await withEnv({ AUTH_REQUIRE_MFA: "false" }, () => {
+    assert.strictEqual(mfaRequired(), false);
+  });
+  await withEnv({ AUTH_REQUIRE_MFA: "true" }, () => {
+    assert.strictEqual(mfaRequired(), true);
   });
   await withEnv({ AUTH_PROVIDER: "BOTH" }, () => {
     assert.strictEqual(authProvider(), "both");
