@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ExportExcelLink } from "@/components/ExportExcelLink";
 import {
   accountRenewalAction,
   batchRaiseSageInvoiceAction,
@@ -76,6 +77,7 @@ export function AccountsBoard({
   saSchemes: SaScheme[];
 }) {
   const nextPath = group === "all" ? "/accounts" : `/accounts?group=${group}`;
+  const exportHref = group === "all" ? "/export/accounts" : `/export/accounts?group=${group}`;
 
   return (
     <>
@@ -88,6 +90,7 @@ export function AccountsBoard({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <ExportExcelLink href={exportHref} />
           <DirectoryDrawer title="NL insurer directory" triggerLabel="NL insurers">
             <ul className="space-y-4">
               {dutchInsurers.map((insurer) => (

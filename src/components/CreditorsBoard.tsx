@@ -4,6 +4,7 @@ import {
   pullAccountingAction,
   updateCreditorAction,
 } from "@/app/creditor-actions";
+import { ExportExcelLink } from "@/components/ExportExcelLink";
 import type { Creditor, PnlStrip } from "@/lib/creditors";
 import { HOUSE_SHORT } from "@/lib/labels";
 
@@ -79,11 +80,14 @@ export function CreditorsBoard({
             loss stays blank until that sync returns figures.
           </p>
         </div>
-        <form action={pullAccountingAction}>
-          <button type="submit" className="min-h-11 rounded-full border border-line px-4 text-sm">
-            Pull from {pnl.connectorLabel}
-          </button>
-        </form>
+        <div className="flex flex-wrap gap-2">
+          <ExportExcelLink href="/export/creditors" />
+          <form action={pullAccountingAction}>
+            <button type="submit" className="min-h-12 rounded-full border border-line bg-paper px-4 text-sm">
+              Pull from {pnl.connectorLabel}
+            </button>
+          </form>
+        </div>
       </div>
 
       {notice ? (

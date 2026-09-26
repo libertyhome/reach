@@ -127,6 +127,7 @@ export const AUDIT_ACTIONS = [
   "admit",
   "within_send",
   "undo",
+  "export",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -201,7 +202,7 @@ export type Person = {
   room_offered: number;
   addon_medical_float: number;
   addon_nursing_medical_admission: number;
-  /** 0 when nursing is off or the day count was never recorded. */
+  /** 1 when Nursing & medical admission is ticked, otherwise 0. */
   addon_nursing_days: number;
   addon_psych_admission: number;
   /** Historical flag. Mapped onto addon_detox_overnight; cleared when that add-on is turned off. */
@@ -215,7 +216,10 @@ export type Person = {
   within_handoff_status: HandoffStatus;
   within_client_id: string;
   admission_kind: AdmissionKind | "";
-  /** 1 when the Detox commercial add-on is on. Treatment then continues on this admission. */
+  /**
+   * 1 when treatment starts with detox. Admit confirm still writes this.
+   * The commercial add-on list no longer shows or edits it.
+   */
   detox_first: number;
   /** 1–5 days when detox_first is 1; otherwise 0. Same count is sent to Within. */
   expected_detox_nights: number;
@@ -247,7 +251,7 @@ export type PersonDocument = {
 
 export type AuditEvent = {
   id: string;
-  entity_type: "person";
+  entity_type: "person" | "list";
   entity_id: string;
   action: AuditAction;
   summary: string;

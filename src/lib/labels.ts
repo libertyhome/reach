@@ -18,6 +18,8 @@ export const STAGE_NAV: { href: string; label: string; stage?: Stage }[] = [
   { href: "/next-steps", label: "Next Steps", stage: "next_steps" },
   { href: "/approval", label: "Account and Clinical Approval", stage: "approval" },
   { href: "/admit", label: "Admit", stage: "admit" },
+  { href: "/admitted", label: "Admitted" },
+  { href: "/not-admitted", label: "Not admitted" },
   { href: "/manor", label: "Manor (22)" },
   { href: "/lodge", label: "Lodge (16)" },
 ];

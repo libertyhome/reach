@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ExportExcelLink } from "@/components/ExportExcelLink";
 import { listSourceBadges } from "@/lib/lead-forms";
 import type { Person } from "@/lib/types";
 import { PersonCard } from "./PersonCard";
@@ -11,6 +12,7 @@ export function StageBoard({
   empty,
   actionHref,
   actionLabel,
+  exportHref,
 }: {
   title: string;
   lede: string;
@@ -19,6 +21,7 @@ export function StageBoard({
   empty: string;
   actionHref?: string;
   actionLabel?: string;
+  exportHref?: string;
 }) {
   const badges = listSourceBadges(people.map((person) => person.id));
   return (
@@ -28,10 +31,15 @@ export function StageBoard({
           <h1 className="serif text-4xl text-sage-deep">{title}</h1>
           <p className="mt-2 max-w-2xl text-muted">{lede}</p>
         </div>
-        {actionHref && actionLabel ? (
-          <Link href={actionHref} className="min-h-12 rounded-full bg-sage px-5 py-3 text-paper">
-            {actionLabel}
-          </Link>
+        {exportHref || (actionHref && actionLabel) ? (
+          <div className="flex flex-wrap gap-2">
+            {exportHref ? <ExportExcelLink href={exportHref} /> : null}
+            {actionHref && actionLabel ? (
+              <Link href={actionHref} className="min-h-12 rounded-full bg-sage px-5 py-3 text-paper">
+                {actionLabel}
+              </Link>
+            ) : null}
+          </div>
         ) : null}
       </div>
       <div className="mt-8 grid gap-4 md:grid-cols-2">

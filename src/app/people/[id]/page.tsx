@@ -8,9 +8,8 @@ import { ChecklistForm } from "@/components/ChecklistForm";
 import { DocumentPanel } from "@/components/DocumentPanel";
 import { HouseAssign } from "@/components/HouseAssign";
 import { IntakePanel } from "@/components/IntakePanel";
-import { LeadSourceForm } from "@/components/LeadSourceForm";
 import { SourceBadge } from "@/components/SourceBadge";
-import { PersonEditor } from "@/components/PersonEditor";
+import { ArpFields, PersonEditor, personDetailsFormId } from "@/components/PersonEditor";
 import { SendToWithin } from "@/components/SendToWithin";
 import { StageMove } from "@/components/StageMove";
 import { TransferExtensionForm } from "@/components/TransferExtensionForm";
@@ -117,7 +116,7 @@ export default async function PersonPage({
           <DocumentPanel personId={person.id} documents={listDocuments(person.id)} />
         </div>
         <div className="space-y-6">
-          <LeadSourceForm person={person} />
+          <ArpFields person={person} formId={personDetailsFormId(person.id)} />
           <StageMove person={person} />
           <ChecklistForm person={person} />
           <TransferExtensionForm person={person} />

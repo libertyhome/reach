@@ -1,6 +1,8 @@
 import assert from "assert";
 import { execSync } from "child_process";
+import { readFileSync } from "fs";
 import http from "http";
+import ExcelJS from "exceljs";
 import {
   type AccountingConnector,
   LIBERTY_TENANT,
@@ -12,7 +14,6 @@ import { assertLeadForms } from "./assert-lead-forms";
 import { clearAccountingFixtures, createCreditor, pullAccounting, readProfitAndLossStrip } from "../src/lib/creditors";
 import { getDb } from "../src/lib/db";
 import { LEAD_SOURCE_LABEL, NOT_CONVERTED_REASON_LABEL } from "../src/lib/labels";
-import { mapOvernightSupervisionAddon } from "../src/lib/migrate";
 import {
   buildExecutiveAnalytics,
   buildOccupancySnapshot,
@@ -38,7 +39,11 @@ import {
 } from "../src/lib/within-occupancy";
 import { seed } from "../src/lib/seed";
 import { authenticate, findUserById, listUsers } from "../src/lib/users";
-import { listAudit, undoEvent } from "../src/lib/audit";
+import { listAudit, undoEvent, writeAudit } from "../src/lib/audit";
+import { buildCommercialDetailsPatch } from "../src/lib/commercial-details";
+import { handleListExport } from "../src/lib/export-lists";
+import { classifyHistory, listAdmittedHistory, listNotAdmittedHistory } from "../src/lib/history";
+import { clampNursingAddonDays, mapOvernightSupervisionAddon } from "../src/lib/migrate";
 import { sessionTokenLooksValid } from "../src/lib/session";
 import {
   COMMERCIAL_ADDONS,
@@ -1357,7 +1362,349 @@ async function runOccupancyQa() {
   assert.strictEqual(requestHasHandoffSecret(new Request("https://reach.example/api/documents/doc"), "occupancy-secret"), false);
 }
 
+async function headerNames(body: Buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(body as unknown as ExcelJS.Buffer);
+  const sheet = workbook.worksheets[0];
+  const values = (sheet?.getRow(1).values ?? []) as unknown[];
+  return { sheet, headers: values.slice(1).map((value) => String(value ?? "")) };
+}
+
+async function runHistoryAndExportQa() {
+  assert.strictEqual(
+    classifyHistory({ stage: "admit", admitted_at: "", archived_at: "" }, false),
+    "admitted",
+  );
+  assert.strictEqual(
+    classifyHistory({ stage: "resident", admitted_at: "", archived_at: "" }, false),
+    "admitted",
+  );
+  assert.strictEqual(
+    classifyHistory({ stage: "archived", admitted_at: "2026-09-01T00:00:00.000Z", archived_at: "2026-09-20T00:00:00.000Z" }, false),
+    "admitted",
+    "Discharged after admission stays on Admitted",
+  );
+  assert.strictEqual(
+    classifyHistory({ stage: "archived", admitted_at: "", archived_at: "2026-09-20T00:00:00.000Z" }, true),
+    "admitted",
+    "A past admit in audit history counts even after archive",
+  );
+  assert.strictEqual(
+    classifyHistory({ stage: "archived", admitted_at: "", archived_at: "2026-09-20T00:00:00.000Z" }, false),
+    "not_admitted",
+  );
+  assert.strictEqual(
+    classifyHistory({ stage: "enquiry", admitted_at: "", archived_at: "" }, false),
+    "open",
+    "Open enquiries are not the Not admitted list",
+  );
+  assert.strictEqual(
+    classifyHistory({ stage: "next_steps", admitted_at: "", archived_at: "" }, false),
+    "open",
+  );
+
+  const closedId = "p_qa_not_admitted";
+  const pastId = "p_qa_past_admit";
+  const undoneId = "p_qa_undone_admit";
+  const nursingId = "p_qa_nursing_days";
+  const detoxId = "p_qa_detox_keep";
+  for (const id of [closedId, pastId, undoneId, nursingId, detoxId]) {
+    getDb().prepare(`DELETE FROM audit_events WHERE entity_id = ?`).run(id);
+    getDb().prepare(`DELETE FROM people WHERE id = ?`).run(id);
+  }
+
+  insertPerson(
+    qaPerson({
+      id: closedId,
+      first_name: "Closed",
+      last_name: "Enquiry",
+      stage: "archived",
+    }),
+  );
+  getDb()
+    .prepare(
+      `UPDATE people
+       SET stage = 'archived',
+           lead_source = 'gp',
+           not_converted_reason = 'unresponsive',
+           archived_at = '2026-09-20T09:00:00.000Z',
+           admitted_at = ''
+       WHERE id = ?`,
+    )
+    .run(closedId);
+  insertPerson(
+    qaPerson({
+      id: pastId,
+      first_name: "Past",
+      last_name: "Admit",
+      stage: "archived",
+    }),
+  );
+  getDb()
+    .prepare(`UPDATE people SET stage = 'archived', archived_at = '2026-09-21T09:00:00.000Z', admitted_at = '' WHERE id = ?`)
+    .run(pastId);
+  const past = findPersonByName("Past", "Admit");
+  assert(past, "Past admit fixture");
+  writeAudit({
+    personId: past.id,
+    action: "stage_move",
+    summary: "Moved to Admit",
+    actorId: actor.id,
+    before: { ...past, stage: "enquiry" },
+    after: { ...past, stage: "admit" },
+  });
+  insertPerson(
+    qaPerson({
+      id: undoneId,
+      first_name: "Undone",
+      last_name: "Admit",
+      stage: "archived",
+    }),
+  );
+  getDb()
+    .prepare(
+      `UPDATE people
+       SET stage = 'archived', archived_at = '2026-09-19T09:00:00.000Z', admitted_at = '', not_converted_reason = 'chose_competitor'
+       WHERE id = ?`,
+    )
+    .run(undoneId);
+  const undonePerson = findPersonByName("Undone", "Admit");
+  assert(undonePerson, "Undone admit fixture");
+  const undoneMove = writeAudit({
+    personId: undonePerson.id,
+    action: "stage_move",
+    summary: "Moved to Admit",
+    actorId: actor.id,
+    before: { ...undonePerson, stage: "enquiry" },
+    after: { ...undonePerson, stage: "admit" },
+  });
+  getDb().prepare(`UPDATE audit_events SET undone = 1 WHERE id = ?`).run(undoneMove.id);
+
+  const admittedIds = new Set(listAdmittedHistory().map((person) => person.id));
+  const notAdmittedIds = new Set(listNotAdmittedHistory().map((person) => person.id));
+  const noah = findPersonByName("Noah", "Botha");
+  const ameliaNow = findPersonByName("Amelia", "Hart");
+  const priya = findPersonByName("Priya", "Naidoo");
+  assert(noah && ameliaNow && priya);
+  assert(admittedIds.has(noah.id), "Current Admit stage is Admitted history");
+  assert(admittedIds.has(ameliaNow.id), "Current resident is Admitted history");
+  assert(admittedIds.has(past.id), "Audit evidence of Admit counts after archive");
+  assert(!notAdmittedIds.has(past.id), "Past admission is not Not admitted");
+  assert(notAdmittedIds.has(closedId), "Archived enquiry without admission is Not admitted");
+  assert(notAdmittedIds.has(undoneId), "An undone move to Admit does not count as admission");
+  assert(!admittedIds.has(undoneId));
+  assert(!admittedIds.has(priya.id) && !notAdmittedIds.has(priya.id), "Open enquiry stays off both history tabs");
+  const closedCard = listNotAdmittedHistory().find((person) => person.id === closedId);
+  assert(closedCard);
+  assert.strictEqual(closedCard.not_converted_reason, "unresponsive");
+  assert.strictEqual(closedCard.lead_source, "gp");
+
+  const when = new Date("2026-09-26T08:00:00.000Z");
+  const closedExport = await handleListExport("not-admitted", actor, new URLSearchParams(), { now: when });
+  assert.strictEqual(closedExport.ok, true);
+  if (closedExport.ok) {
+    assert.strictEqual(closedExport.filename, "reach-not-admitted-2026-09-26.xlsx");
+    assert.strictEqual(closedExport.body[0], 0x50);
+    assert.strictEqual(closedExport.body[1], 0x4b);
+    const { headers } = await headerNames(closedExport.body);
+    assert.deepStrictEqual(headers.slice(0, 4), ["Name", "Lead source", "Not converted reason", "Closed"]);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(closedExport.body as unknown as ExcelJS.Buffer);
+    const names = workbook.worksheets[0].getColumn(1).values.map((value) => String(value ?? ""));
+    assert(names.includes("Closed Enquiry"), "Not admitted export includes the archived enquiry");
+  }
+  const exportAudit = getDb()
+    .prepare(`SELECT * FROM audit_events WHERE action = 'export' AND entity_id = 'not-admitted' ORDER BY created_at DESC LIMIT 1`)
+    .get() as { actor_id: string; entity_type: string; before_json: string; summary: string };
+  assert.strictEqual(exportAudit.entity_type, "list");
+  assert.strictEqual(exportAudit.actor_id, actor.id);
+  assert.strictEqual(exportAudit.before_json, "null");
+  assert(exportAudit.summary.includes("reach-not-admitted-2026-09-26.xlsx"));
+  const exportUndo = undoEvent(String((getDb().prepare(`SELECT id FROM audit_events WHERE action = 'export' ORDER BY created_at DESC LIMIT 1`).get() as { id: string }).id), actor.id);
+  assert.strictEqual(exportUndo.ok, false);
+
+  const therapist = findUserById("user_therapist");
+  const executive = findUserById("user_executive");
+  assert(therapist && executive);
+  const beforeCreditorExports = (
+    getDb().prepare(`SELECT COUNT(*) AS n FROM audit_events WHERE action = 'export' AND entity_id = 'creditors'`).get() as { n: number }
+  ).n;
+  const denied = await handleListExport("creditors", therapist, new URLSearchParams(), { now: when });
+  assert.strictEqual(denied.ok, false);
+  if (!denied.ok) assert.strictEqual(denied.status, 403);
+  const afterDenied = (
+    getDb().prepare(`SELECT COUNT(*) AS n FROM audit_events WHERE action = 'export' AND entity_id = 'creditors'`).get() as { n: number }
+  ).n;
+  assert.strictEqual(afterDenied, beforeCreditorExports, "A refused export is not logged");
+  const allowed = await handleListExport("creditors", executive, new URLSearchParams(), { now: when });
+  assert.strictEqual(allowed.ok, true);
+  if (allowed.ok) {
+    assert.strictEqual(allowed.filename, "reach-creditors-2026-09-26.xlsx");
+    const { headers } = await headerNames(allowed.body);
+    assert(headers.includes("Name") && headers.includes("Account reference"));
+  }
+  const anon = await handleListExport("enquiries", null, new URLSearchParams());
+  assert.strictEqual(anon.ok, false);
+  if (!anon.ok) assert.strictEqual(anon.status, 401);
+  const unknown = await handleListExport("executive", actor, new URLSearchParams());
+  assert.strictEqual(unknown.ok, false);
+  if (!unknown.ok) assert.strictEqual(unknown.status, 404);
+  const accountsExport = await handleListExport("accounts", therapist, new URLSearchParams("group=phase_1"), { now: when });
+  assert.strictEqual(accountsExport.ok, true, "Accounts export follows the staff page, not the creditors role");
+  const enquiriesExport = await handleListExport("enquiries", actor, new URLSearchParams(), { now: when });
+  assert.strictEqual(enquiriesExport.ok, true);
+  if (enquiriesExport.ok) {
+    assert.match(enquiriesExport.filename, /^reach-enquiries-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    const { headers } = await headerNames(enquiriesExport.body);
+    assert(headers.includes("Lead source") && headers.includes("Enquiry date"));
+  }
+
+  const manorExport = await handleListExport("manor", actor, new URLSearchParams(), {
+    now: when,
+    readOccupancy: async () => ({
+      house: "manor",
+      capacity: 22,
+      occupied: 1,
+      bedOccupied: 1,
+      available: 21,
+      unassignedCount: 0,
+      unassigned: [],
+      rooms: [
+        {
+          name: "Willow",
+          capacity: 1,
+          occupied: 1,
+          beds: [
+            {
+              id: "bed-willow",
+              label: "Bed A",
+              status: "occupied",
+              patientName: "Willow Guest",
+              clientId: "within-willow",
+              admissionDate: "2026-09-02",
+              reachPersonId: "",
+            },
+          ],
+        },
+      ],
+      syncedAt: "2026-09-26T08:00:00.000Z",
+      syncedAtLabel: "26 Sep",
+      live: true,
+      unreachable: false,
+      known: true,
+    }),
+  });
+  assert.strictEqual(manorExport.ok, true);
+  if (manorExport.ok) {
+    assert.strictEqual(manorExport.filename, "reach-manor-2026-09-26.xlsx");
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(manorExport.body as unknown as ExcelJS.Buffer);
+    const patient = workbook.worksheets[0].getColumn(4).values.map((value) => String(value ?? ""));
+    assert(patient.includes("Willow Guest"));
+  }
+
+  insertPerson(
+    qaPerson({
+      id: nursingId,
+      first_name: "Nursing",
+      last_name: "Days",
+      stage: "enquiry",
+      lead_source: "family",
+      commercial_notes: "Keep nursing note",
+      addon_nursing_medical_admission: 1,
+      addon_nursing_days: 8,
+    }),
+  );
+  getDb()
+    .prepare(
+      `UPDATE people
+       SET addon_nursing_medical_admission = 1,
+           addon_nursing_days = 8,
+           commercial_notes = 'Keep nursing note',
+           lead_source = 'family'
+       WHERE id = ?`,
+    )
+    .run(nursingId);
+  clampNursingAddonDays(getDb());
+  const clamped = findPersonByName("Nursing", "Days");
+  assert(clamped);
+  assert.strictEqual(clamped.addon_nursing_days, 1, "Nursing days above 1 collapse to a single day");
+  assert.strictEqual(clamped.addon_nursing_medical_admission, 1);
+  assert.strictEqual(clamped.commercial_notes, "Keep nursing note");
+  assert.strictEqual(clamped.lead_source, "family");
+  clampNursingAddonDays(getDb());
+  assert.strictEqual(findPersonByName("Nursing", "Days")?.addon_nursing_days, 1, "Nursing day clamp is idempotent");
+
+  const form = new FormData();
+  form.set("first_name", "Nursing");
+  form.set("last_name", "Days");
+  form.set("addon_nursing_medical_admission", "1");
+  form.set("detox_first", "1");
+  form.set("expected_detox_nights", "4");
+  const built = buildCommercialDetailsPatch(form);
+  assert.strictEqual(built.ok, true);
+  if (built.ok) {
+    assert.strictEqual(built.patch.addon_nursing_medical_admission, 1);
+    assert.strictEqual(built.patch.addon_nursing_days, 1);
+    assert.strictEqual("detox_first" in built.patch, false, "Commercial save does not edit the treatment detox flag");
+    assert.strictEqual("expected_detox_nights" in built.patch, false);
+  }
+  const off = new FormData();
+  const cleared = buildCommercialDetailsPatch(off);
+  assert.strictEqual(cleared.ok, true);
+  if (cleared.ok) {
+    assert.strictEqual(cleared.patch.addon_nursing_medical_admission, 0);
+    assert.strictEqual(cleared.patch.addon_nursing_days, 0);
+  }
+
+  insertPerson(
+    qaPerson({
+      id: detoxId,
+      first_name: "Detox",
+      last_name: "Keep",
+      stage: "resident",
+      house: "manor",
+      room_id: roomId("manor", "Willow"),
+      admission_kind: "program",
+      detox_first: 1,
+      expected_detox_nights: 4,
+      admitted_at: "2026-09-20T00:00:00.000Z",
+    }),
+  );
+  const kept = applyPersonPatch(detoxId, { commercial_notes: "notes only" }, actor, "field_edit", "Notes");
+  assert.strictEqual(kept.ok, true);
+  if (kept.ok) {
+    assert.strictEqual(kept.person.detox_first, 1);
+    assert.strictEqual(kept.person.expected_detox_nights, 4);
+    const claims = claimsForPerson(kept.person);
+    assert.strictEqual(claims?.expectedDetoxNights, 4);
+    assert.strictEqual(claims?.detoxFirst, true);
+    assert.strictEqual(claims?.detoxIntent, "detox_first");
+  }
+
+  const editor = readFileSync("src/components/PersonEditor.tsx", "utf8");
+  assert.strictEqual(editor.includes("DetoxAddonFields"), false);
+  assert(editor.includes("Detox/overnight supervision"));
+  assert(editor.includes("Nursing & medical admission"));
+  assert(!editor.includes("daysName=\"addon_nursing_days\""));
+  assert(editor.indexOf("Lead source") < editor.indexOf(">Referrer<"));
+  const personPage = readFileSync("src/app/people/[id]/page.tsx", "utf8");
+  assert(personPage.indexOf("<ArpFields") < personPage.indexOf("<StageMove"));
+  assert(personPage.indexOf("<StageMove") < personPage.indexOf("<TransferExtensionForm"));
+  assert.strictEqual(personPage.includes("LeadSourceForm"), false);
+  const nav = readFileSync("src/lib/labels.ts", "utf8");
+  assert(nav.indexOf('label: "Admit"') < nav.indexOf('label: "Admitted"'));
+  assert(nav.indexOf('label: "Admitted"') < nav.indexOf('label: "Not admitted"'));
+  assert(nav.indexOf('label: "Not admitted"') < nav.indexOf('label: "Manor (22)"'));
+
+  for (const id of [closedId, pastId, undoneId, nursingId, detoxId]) {
+    getDb().prepare(`DELETE FROM audit_events WHERE entity_id = ?`).run(id);
+    getDb().prepare(`DELETE FROM people WHERE id = ?`).run(id);
+  }
+}
+
 assertLeadForms()
+  .then(() => runHistoryAndExportQa())
   .then(() => runMockedWithinSend())
   .then(() => runOccupancyQa())
   .then(() => {

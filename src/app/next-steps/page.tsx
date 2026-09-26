@@ -20,6 +20,7 @@ export default async function NextStepsPage({
         people={listPeopleByStage("next_steps")}
         highlightId={params.focus}
         empty="Nothing in Next Steps. Move a card from Enquiries when a conversation is booked."
+        exportHref="/export/next-steps"
       />
     </AppShell>
   );
